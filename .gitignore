@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Django
+staticfiles/
+media/
+
+# Local databases / backups
+*.sqlite3
+*.sql
+*.dump
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
