@@ -139,16 +139,10 @@ class QuestionSkill(models.Model):
 
             models.CheckConstraint(
                 condition=(
-                    models.Q(weight__gt=0)
-                    & models.Q(weight__lte=1)
+                        models.Q(weight__gt=0)
+                        & models.Q(weight__lte=1)
                 ),
                 name="ck_qs_weight",
-            ),
-
-            models.UniqueConstraint(
-                fields=("question",),
-                condition=models.Q(is_primary=True),
-                name="uq_qs_primary",
             ),
         ]
 

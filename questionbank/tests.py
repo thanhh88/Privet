@@ -165,3 +165,41 @@ class QuestionSkillIntegrityTests(TransactionTestCase):
             ).count(),
             2,
         )
+
+    def test_primary_skill_can_be_switched_in_any_save_order(self):
+        with transaction.atomic():
+            question = self.create_question(
+                "TEST_SWITCH_PRIMARY_001"
+            )
+
+            old_primary = QuestionSkill.objects.create(
+                question=question,
+                skill=self.skill_1,
+                is_primary=True,
+                weight=Decimal("0.50000"),
+            )
+
+            new_primary = QuestionSkill.objects.create(
+                question=question,
+                skill=self.skill_2,
+                is_primary=False,
+                weight=Decimal("0.50000"),
+            )
+
+        # Cố tình bật primary mới trước.
+        with transaction.atomic():
+            new_primary.is_primary = True
+            new_primary.save(
+                update_fields=["is_primary"]
+            )
+
+            old_primary.is_primary = False
+            old_primary.save(
+                update_fields=["is_primary"]
+            )
+
+        old_primary.refresh_from_db()
+        new_primary.refresh_from_db()
+
+        self.assertFalse(old_primary.is_primary)
+        self.assertTrue(new_primary.is_primary)

@@ -1,7 +1,9 @@
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.functions import Lower
+from django.utils import timezone
 
 from .managers import UserManager
 
@@ -132,6 +134,30 @@ class InviteCode(models.Model):
                 name="ck_invite_redeemed_state",
             ),
         ]
+
+    def clean(self):
+        super().clean()
+
+        if self.status == self.Status.REDEEMED:
+            if self.redeemed_by_user_id is None:
+                raise ValidationError(
+                    {
+                        "redeemed_by_user":
+                            "Required when status is redeemed."
+                    }
+                )
+
+            if self.redeemed_at is None:
+                self.redeemed_at = timezone.now()
+
+        elif (
+                self.redeemed_by_user_id is not None
+                or self.redeemed_at is not None
+        ):
+            raise ValidationError(
+                "Only redeemed codes may have a "
+                "redeemer / redeemed_at."
+            )
 
     def __str__(self):
         return self.code

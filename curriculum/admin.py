@@ -3,6 +3,7 @@ from django.contrib import admin
 from .models import (
     Lesson,
     LessonProgress,
+    LessonSkill,
     Skill,
     Topic,
 )
@@ -64,6 +65,15 @@ class SkillAdmin(admin.ModelAdmin):
         "skill_id",
     )
 
+class LessonSkillInline(admin.TabularInline):
+    model = LessonSkill
+
+    extra = 1
+
+    fields = (
+        "skill",
+    )
+
 @admin.register(Lesson)
 class LessonAdmin(admin.ModelAdmin):
     list_display = (
@@ -81,6 +91,10 @@ class LessonAdmin(admin.ModelAdmin):
 
     search_fields = (
         "title",
+    )
+
+    inlines = (
+        LessonSkillInline,
     )
 
     ordering = (
