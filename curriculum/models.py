@@ -82,12 +82,22 @@ class Skill(models.Model):
 
     class Meta:
         db_table = "skill"
-        ordering = ("topic", "display_order", "skill_id")
 
         constraints = [
-            models.UniqueConstraint(  #deny duplicate
-                fields=("topic", "skill_name"),
+            models.UniqueConstraint(
+                fields=["topic", "skill_name"],
                 name="uq_skill_topic_name",
+            ),
+
+            models.CheckConstraint(
+                condition=models.Q(
+                    cefr_level__in=[
+                        "A1",
+                        "A2",
+                        "B1",
+                    ]
+                ),
+                name="ck_skill_cefr",
             ),
         ]
 
@@ -137,7 +147,7 @@ class LessonSkill(models.Model):
 
     lesson = models.ForeignKey(
         Lesson,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="lesson_skills",
     )
 
@@ -220,6 +230,29 @@ class LessonProgress(models.Model):
                     & models.Q(completion_ratio__lte=1)
                 ),
                 name="ck_lesson_progress_completion_ratio",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    status__in=[
+                        "in_progress",
+                        "completed",
+                    ]
+                ),
+                name="ck_lesson_progress_status",
+            ),
+            models.CheckConstraint(
+                condition=(
+                        models.Q(
+                            status="completed",
+                            completed_at__isnull=False,
+                        )
+                        |
+                        (
+                                ~models.Q(status="completed")
+                                & models.Q(completed_at__isnull=True)
+                        )
+                ),
+                name="ck_lesson_progress_completed_state",
             ),
         ]
 

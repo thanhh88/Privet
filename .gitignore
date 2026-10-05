@@ -14,9 +14,8 @@ __pycache__/
 staticfiles/
 media/
 
-# Local databases / backups
-*.sqlite3
-*.sql
+# Database backups
+/backups/*.sql
 *.dump
 
 # PyCharm

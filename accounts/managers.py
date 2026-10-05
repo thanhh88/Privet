@@ -36,3 +36,11 @@ class UserManager(BaseUserManager):
             password=password,
             **extra_fields,
         )
+    def get_by_natural_key(self, username):
+        normalized_email = (username or "").strip().lower()
+
+        return self.get(
+            **{
+                self.model.USERNAME_FIELD: normalized_email,
+            }
+        )
