@@ -103,9 +103,8 @@ class Question(models.Model):
         return f"{self.source_id}: {self.question_text[:60]}"
 
 class QuestionSkill(models.Model):
-    pk = models.CompositePrimaryKey(
-        "question_id",
-        "skill_id",
+    question_skill_id = models.BigAutoField(
+        primary_key=True,
     )
 
     question = models.ForeignKey(
@@ -133,6 +132,11 @@ class QuestionSkill(models.Model):
         db_table = "question_skill"
 
         constraints = [
+            models.UniqueConstraint(
+                fields=("question", "skill"),
+                name="uq_question_skill_pair",
+            ),
+
             models.CheckConstraint(
                 condition=(
                     models.Q(weight__gt=0)
@@ -140,6 +144,7 @@ class QuestionSkill(models.Model):
                 ),
                 name="ck_qs_weight",
             ),
+
             models.UniqueConstraint(
                 fields=("question",),
                 condition=models.Q(is_primary=True),
@@ -159,7 +164,6 @@ class QuestionSkill(models.Model):
             f"{self.question.source_id} -> "
             f"{self.skill.skill_name}"
         )
-
 class QuestionOption(models.Model):
     option_id = models.BigAutoField(
         primary_key=True,

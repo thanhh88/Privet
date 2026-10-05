@@ -140,9 +140,8 @@ class Lesson(models.Model):
         return self.title
 
 class LessonSkill(models.Model):
-    pk = models.CompositePrimaryKey(  #database create PRIMARY KEY (lesson_id, skill_id), do not need create new id
-        "lesson_id",
-        "skill_id",
+    lesson_skill_id = models.BigAutoField(
+        primary_key=True,
     )
 
     lesson = models.ForeignKey(
@@ -153,12 +152,19 @@ class LessonSkill(models.Model):
 
     skill = models.ForeignKey(
         Skill,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="lesson_skills",
     )
 
     class Meta:
         db_table = "lesson_skill"
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=("lesson", "skill"),
+                name="uq_lesson_skill_pair",
+            ),
+        ]
 
         indexes = [
             models.Index(
