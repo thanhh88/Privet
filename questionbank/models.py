@@ -205,11 +205,6 @@ class QuestionOption(models.Model):
                 fields=("option_id", "question"),
                 name="uq_option_question_pair",
             ),
-            models.UniqueConstraint(
-                fields=("question",),
-                condition=models.Q(is_correct=True),
-                name="uq_qopt_one_correct",
-            ),
         ]
 
         indexes = [

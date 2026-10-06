@@ -331,3 +331,68 @@ class QuestionValidationTests(SimpleTestCase):
                 "contextual",
                 [],
             )
+
+    def test_option_with_empty_text_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            validate_options(
+                "multiple_choice",
+                [
+                    {
+                        "option_text": "",
+                        "is_correct": True,
+                    },
+                    {
+                        "option_text": "B",
+                        "is_correct": False,
+                    },
+                ],
+            )
+
+    def test_option_with_whitespace_only_text_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            validate_options(
+                "multiple_choice",
+                [
+                    {
+                        "option_text": "   ",
+                        "is_correct": True,
+                    },
+                    {
+                        "option_text": "B",
+                        "is_correct": False,
+                    },
+                ],
+            )
+
+    def test_duplicate_skills_are_rejected(self):
+        with self.assertRaises(ValidationError):
+            validate_skill_rows(
+                [
+                    {
+                        "skill": 10,
+                        "is_primary": True,
+                        "weight": Decimal("0.50000"),
+                    },
+                    {
+                        "skill": 10,
+                        "is_primary": False,
+                        "weight": Decimal("0.50000"),
+                    },
+                ]
+            )
+
+    def test_different_skills_are_allowed(self):
+        validate_skill_rows(
+            [
+                {
+                    "skill": 10,
+                    "is_primary": True,
+                    "weight": Decimal("0.60000"),
+                },
+                {
+                    "skill": 20,
+                    "is_primary": False,
+                    "weight": Decimal("0.40000"),
+                },
+            ]
+        )

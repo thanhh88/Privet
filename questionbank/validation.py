@@ -11,6 +11,7 @@ def validate_skill_rows(rows):
     Validate QuestionSkill data.
 
     Each row is expected to contain:
+    - skill
     - is_primary
     - weight
     """
@@ -18,6 +19,25 @@ def validate_skill_rows(rows):
         raise ValidationError(
             "A question must have at least one skill."
         )
+
+    # Reject duplicate skills before reaching the database constraint.
+    seen_skills = set()
+
+    for row in rows:
+        skill = row.get("skill")
+
+        # Some pure unit tests may omit the skill field.
+        if skill is None:
+            continue
+
+        skill_key = getattr(skill, "pk", skill)
+
+        if skill_key in seen_skills:
+            raise ValidationError(
+                "A question must not contain duplicate skills."
+            )
+
+        seen_skills.add(skill_key)
 
     primary_count = sum(
         1
@@ -54,15 +74,23 @@ def validate_options(question_type, options):
     - option_text
     - is_correct
     """
-    active_options = [
-        option
-        for option in options
-        if option.get("option_text")
-    ]
+
+    # If an option reaches this shared validator,
+    # it must contain non-empty text.
+    #
+    # Django Admin should filter out completely empty extra forms
+    # before calling this validator.
+    for option in options:
+        option_text = option.get("option_text")
+
+        if not isinstance(option_text, str) or not option_text.strip():
+            raise ValidationError(
+                "Option text must be a non-empty string."
+            )
 
     correct_count = sum(
         1
-        for option in active_options
+        for option in options
         if option.get("is_correct")
     )
 
@@ -70,7 +98,7 @@ def validate_options(question_type, options):
         "multiple_choice",
         "fill_choice",
     }:
-        if len(active_options) < 2:
+        if len(options) < 2:
             raise ValidationError(
                 "This question type must have at least two options."
             )
@@ -81,7 +109,7 @@ def validate_options(question_type, options):
             )
 
     elif question_type == "fill_blank":
-        if active_options:
+        if options:
             raise ValidationError(
                 "A fill-blank question must not have options."
             )
