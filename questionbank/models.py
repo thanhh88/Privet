@@ -1,6 +1,7 @@
 from django.db import models
 
 from curriculum.models import Skill
+from .validation import validate_question_answer_fields
 
 
 class Question(models.Model):
@@ -97,7 +98,23 @@ class Question(models.Model):
                 ),
                 name="ck_question_type",
             ),
+            models.CheckConstraint(
+                condition=(
+                        models.Q(accepted_answers__isnull=True)
+                        | models.Q(accepted_answers__contains=[])
+                ),
+                name="ck_question_accepted_answers_array",
+            ),
         ]
+
+    def clean(self):
+        super().clean()
+
+        validate_question_answer_fields(
+            question_type=self.question_type,
+            correct_answer=self.correct_answer,
+            accepted_answers=self.accepted_answers,
+        )
 
     def __str__(self):
         return f"{self.source_id}: {self.question_text[:60]}"
@@ -187,6 +204,11 @@ class QuestionOption(models.Model):
             models.UniqueConstraint(
                 fields=("option_id", "question"),
                 name="uq_option_question_pair",
+            ),
+            models.UniqueConstraint(
+                fields=("question",),
+                condition=models.Q(is_correct=True),
+                name="uq_qopt_one_correct",
             ),
         ]
 

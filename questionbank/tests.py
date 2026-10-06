@@ -5,7 +5,14 @@ from django.test import TransactionTestCase
 
 from curriculum.models import Skill, Topic
 from questionbank.models import Question, QuestionSkill
+from django.core.exceptions import ValidationError
+from django.test import SimpleTestCase
 
+from questionbank.validation import (
+    validate_options,
+    validate_question_answer_fields,
+    validate_skill_rows,
+)
 
 class QuestionSkillIntegrityTests(TransactionTestCase):
     def setUp(self):
@@ -203,3 +210,124 @@ class QuestionSkillIntegrityTests(TransactionTestCase):
 
         self.assertFalse(old_primary.is_primary)
         self.assertTrue(new_primary.is_primary)
+
+class QuestionValidationTests(SimpleTestCase):
+    def test_valid_skill_rows(self):
+        validate_skill_rows(
+            [
+                {
+                    "is_primary": True,
+                    "weight": Decimal("0.60000"),
+                },
+                {
+                    "is_primary": False,
+                    "weight": Decimal("0.40000"),
+                },
+            ]
+        )
+
+    def test_skill_rows_wrong_weight_sum_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            validate_skill_rows(
+                [
+                    {
+                        "is_primary": True,
+                        "weight": Decimal("0.60000"),
+                    },
+                    {
+                        "is_primary": False,
+                        "weight": Decimal("0.30000"),
+                    },
+                ]
+            )
+
+    def test_multiple_choice_requires_one_correct_option(self):
+        with self.assertRaises(ValidationError):
+            validate_options(
+                "multiple_choice",
+                [
+                    {
+                        "option_text": "A",
+                        "is_correct": True,
+                    },
+                    {
+                        "option_text": "B",
+                        "is_correct": True,
+                    },
+                ],
+            )
+
+    def test_multiple_choice_valid_options(self):
+        validate_options(
+            "multiple_choice",
+            [
+                {
+                    "option_text": "A",
+                    "is_correct": True,
+                },
+                {
+                    "option_text": "B",
+                    "is_correct": False,
+                },
+            ],
+        )
+
+    def test_fill_blank_rejects_options(self):
+        with self.assertRaises(ValidationError):
+            validate_options(
+                "fill_blank",
+                [
+                    {
+                        "option_text": "A",
+                        "is_correct": True,
+                    }
+                ],
+            )
+
+    def test_fill_blank_requires_answer(self):
+        with self.assertRaises(ValidationError):
+            validate_question_answer_fields(
+                question_type="fill_blank",
+                correct_answer="",
+                accepted_answers=None,
+            )
+
+    def test_fill_blank_accepts_correct_answer(self):
+        validate_question_answer_fields(
+            question_type="fill_blank",
+            correct_answer="студент",
+            accepted_answers=None,
+        )
+
+    def test_fill_blank_accepts_answer_list(self):
+        validate_question_answer_fields(
+            question_type="fill_blank",
+            correct_answer="",
+            accepted_answers=[
+                "студент",
+                "Студент",
+            ],
+        )
+
+    def test_option_based_question_rejects_correct_answer(self):
+        with self.assertRaises(ValidationError):
+            validate_question_answer_fields(
+                question_type="multiple_choice",
+                correct_answer="A",
+                accepted_answers=None,
+            )
+
+    def test_accepted_answers_must_be_list(self):
+        with self.assertRaises(ValidationError):
+            validate_question_answer_fields(
+                question_type="fill_blank",
+                correct_answer="",
+                accepted_answers="студент",
+            )
+
+    def test_contextual_is_rejected_for_now(self):
+        with self.assertRaises(ValidationError):
+            validate_options(
+                "contextual",
+                [],
+            )

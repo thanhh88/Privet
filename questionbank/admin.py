@@ -1,10 +1,8 @@
-from decimal import Decimal
-
 from django.contrib import admin
-from django.core.exceptions import ValidationError
 from django.forms.models import BaseInlineFormSet
 
 from .models import Question, QuestionOption, QuestionSkill
+from .validation import validate_options, validate_skill_rows
 
 
 class QuestionSkillInlineFormSet(BaseInlineFormSet):
@@ -14,9 +12,7 @@ class QuestionSkillInlineFormSet(BaseInlineFormSet):
         if any(self.errors):
             return
 
-        primary_count = 0
-        total_weight = Decimal("0")
-        active_rows = 0
+        rows = []
 
         for form in self.forms:
             cleaned_data = getattr(form, "cleaned_data", None)
@@ -29,37 +25,23 @@ class QuestionSkillInlineFormSet(BaseInlineFormSet):
 
             skill = cleaned_data.get("skill")
             weight = cleaned_data.get("weight")
-            is_primary = cleaned_data.get("is_primary", False)
 
             # Bỏ qua extra form hoàn toàn trống.
             if skill is None and weight is None:
                 continue
 
-            active_rows += 1
-
-            if is_primary:
-                primary_count += 1
-
-            if weight is not None:
-                total_weight += weight
-
-        if active_rows == 0:
-            raise ValidationError(
-                "A question must have at least one skill."
+            rows.append(
+                {
+                    "skill": skill,
+                    "is_primary": cleaned_data.get(
+                        "is_primary",
+                        False,
+                    ),
+                    "weight": weight,
+                }
             )
 
-        if primary_count != 1:
-            raise ValidationError(
-                "A question must have exactly one primary skill."
-            )
-
-        tolerance = Decimal("0.001")
-
-        if abs(total_weight - Decimal("1")) > tolerance:
-            raise ValidationError(
-                "Question skill weights must sum to 1 "
-                "within a tolerance of ±0.001."
-            )
+        validate_skill_rows(rows)
 
 
 class QuestionSkillInline(admin.TabularInline):
@@ -85,8 +67,7 @@ class QuestionOptionInlineFormSet(BaseInlineFormSet):
         if any(self.errors):
             return
 
-        active_rows = 0
-        correct_count = 0
+        options = []
 
         for form in self.forms:
             cleaned_data = getattr(form, "cleaned_data", None)
@@ -98,37 +79,26 @@ class QuestionOptionInlineFormSet(BaseInlineFormSet):
                 continue
 
             option_text = cleaned_data.get("option_text")
-            is_correct = cleaned_data.get("is_correct", False)
 
             # Bỏ qua extra form trống.
             if not option_text:
                 continue
 
-            active_rows += 1
+            options.append(
+                {
+                    "option_text": option_text,
+                    "is_correct": cleaned_data.get(
+                        "is_correct",
+                        False,
+                    ),
+                }
+            )
 
-            if is_correct:
-                correct_count += 1
+        validate_options(
+            self.instance.question_type,
+            options,
+        )
 
-        question_type = self.instance.question_type
-
-        if question_type == Question.QuestionType.MULTIPLE_CHOICE:
-            if active_rows < 2:
-                raise ValidationError(
-                    "A multiple-choice question must have "
-                    "at least two options."
-                )
-
-            if correct_count != 1:
-                raise ValidationError(
-                    "A multiple-choice question must have "
-                    "exactly one correct option."
-                )
-
-        if question_type == Question.QuestionType.FILL_BLANK:
-            if active_rows != 0:
-                raise ValidationError(
-                    "A fill-blank question must not have options."
-                )
 class QuestionOptionInline(admin.TabularInline):
     model = QuestionOption
     formset = QuestionOptionInlineFormSet
@@ -149,6 +119,10 @@ class QuestionOptionInline(admin.TabularInline):
 
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
     list_display = (
         "source_id",
         "question_type",
