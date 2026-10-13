@@ -1,7 +1,20 @@
 from django.db import models
 
 from curriculum.models import Skill
-from .validation import validate_question_answer_fields
+from .validation import (
+    validate_item_format,
+    validate_question_answer_fields,
+)
+from django.core.validators import RegexValidator
+from django.db import models
+
+OPTION_KEY_VALIDATOR = RegexValidator(
+    regex=r"^[A-Z0-9][A-Z0-9._-]*$",
+    message=(
+        "Option key must start with A-Z or 0-9 and contain only "
+        "A-Z, 0-9, '.', '_' or '-'."
+    ),
+)
 
 
 class Question(models.Model):
@@ -10,6 +23,16 @@ class Question(models.Model):
         FILL_BLANK = "fill_blank", "Fill blank"
         FILL_CHOICE = "fill_choice", "Fill choice"
         CONTEXTUAL = "contextual", "Contextual"
+
+    class ItemFormat(models.TextChoices):
+        SINGLE_CHOICE = "single_choice", "Single choice"
+        FILL_CHOICE = "fill_choice", "Fill choice"
+        CONTEXTUAL_CHOICE = "contextual_choice", "Contextual choice"
+
+        RU_TO_VI = "ru_to_vi", "Russian to Vietnamese"
+        VI_TO_RU = "vi_to_ru", "Vietnamese to Russian"
+        DEFINITION_TO_RU = "definition_to_ru", "Definition to Russian"
+        CLOZE_RU = "cloze_ru", "Russian cloze"
 
     class CefrLevel(models.TextChoices):
         A1 = "A1", "A1"
@@ -28,6 +51,13 @@ class Question(models.Model):
     question_type = models.CharField(
         max_length=32,
         choices=QuestionType.choices,
+    )
+
+    item_format = models.CharField(
+        max_length=32,
+        choices=ItemFormat.choices,
+        null=True,
+        blank=True,
     )
 
     question_text = models.TextField()
@@ -110,6 +140,11 @@ class Question(models.Model):
     def clean(self):
         super().clean()
 
+        validate_item_format(
+            self.question_type,
+            self.item_format,
+        )
+
         validate_question_answer_fields(
             question_type=self.question_type,
             correct_answer=self.correct_answer,
@@ -186,7 +221,18 @@ class QuestionOption(models.Model):
         related_name="options",
     )
 
+    option_key = models.CharField(
+        max_length=16,
+        validators=[OPTION_KEY_VALIDATOR],
+    )
+
     option_text = models.TextField()
+
+    misconception_code = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+    )
 
     is_correct = models.BooleanField(
         default=False,
@@ -204,6 +250,14 @@ class QuestionOption(models.Model):
             models.UniqueConstraint(
                 fields=("option_id", "question"),
                 name="uq_option_question_pair",
+            ),
+            models.UniqueConstraint(
+                fields=("question", "option_key"),
+                name="uq_qopt_question_key",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(option_key=""),
+                name="ck_qopt_option_key_nonblank",
             ),
         ]
 

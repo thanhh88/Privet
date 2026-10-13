@@ -78,7 +78,16 @@ class QuestionOptionInlineFormSet(BaseInlineFormSet):
             if cleaned_data.get("DELETE"):
                 continue
 
+            option_key = cleaned_data.get("option_key")
             option_text = cleaned_data.get("option_text")
+            misconception_code = cleaned_data.get(
+                "misconception_code"
+            )
+
+            if isinstance(misconception_code, str):
+                misconception_code = (
+                        misconception_code.strip() or None
+                )
 
             # Bỏ qua extra form trống.
             if not option_text:
@@ -86,7 +95,9 @@ class QuestionOptionInlineFormSet(BaseInlineFormSet):
 
             options.append(
                 {
+                    "option_key": option_key,
                     "option_text": option_text,
+                    "misconception_code": misconception_code,
                     "is_correct": cleaned_data.get(
                         "is_correct",
                         False,
@@ -106,7 +117,9 @@ class QuestionOptionInline(admin.TabularInline):
     extra = 1
 
     fields = (
+        "option_key",
         "option_text",
+        "misconception_code",
         "is_correct",
         "display_order",
     )
@@ -126,6 +139,7 @@ class QuestionAdmin(admin.ModelAdmin):
     list_display = (
         "source_id",
         "question_type",
+        "item_format",
         "cefr_level",
         "difficulty_score",
         "is_extension",
@@ -134,6 +148,7 @@ class QuestionAdmin(admin.ModelAdmin):
 
     list_filter = (
         "question_type",
+        "item_format",
         "cefr_level",
         "is_extension",
         "is_active",
@@ -171,11 +186,12 @@ class QuestionAdmin(admin.ModelAdmin):
             "Question",
             {
                 "fields": (
-                    "question_type",
-                    "question_text",
-                    "cefr_level",
-                    "is_extension",
-                    "difficulty_score",
+            "question_type",
+            "item_format",
+            "question_text",
+            "cefr_level",
+            "is_extension",
+            "difficulty_score",
                 ),
             },
         ),
@@ -206,7 +222,9 @@ class QuestionOptionAdmin(admin.ModelAdmin):
     list_display = (
         "option_id",
         "question",
+        "option_key",
         "option_text",
+        "misconception_code",
         "is_correct",
         "display_order",
     )
@@ -218,13 +236,17 @@ class QuestionOptionAdmin(admin.ModelAdmin):
     search_fields = (
         "question__source_id",
         "question__question_text",
+        "option_key",
         "option_text",
+        "misconception_code",
     )
 
     readonly_fields = (
         "option_id",
         "question",
+        "option_key",
         "option_text",
+        "misconception_code",
         "is_correct",
         "display_order",
     )
@@ -267,6 +289,7 @@ class QuestionSkillAdmin(admin.ModelAdmin):
     search_fields = (
         "question__source_id",
         "question__question_text",
+        "skill__skill_code",
         "skill__skill_name",
     )
 

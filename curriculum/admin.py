@@ -39,6 +39,7 @@ class TopicAdmin(admin.ModelAdmin):
 class SkillAdmin(admin.ModelAdmin):
     list_display = (
         "skill_id",
+        "skill_code",
         "skill_name",
         "topic",
         "cefr_level",
@@ -55,6 +56,7 @@ class SkillAdmin(admin.ModelAdmin):
     )
 
     search_fields = (
+        "skill_code",
         "skill_name",
         "topic__topic_name",
     )
@@ -65,12 +67,17 @@ class SkillAdmin(admin.ModelAdmin):
         "skill_id",
     )
 
+
 class LessonSkillInline(admin.TabularInline):
     model = LessonSkill
 
     extra = 1
 
     fields = (
+        "skill",
+    )
+
+    autocomplete_fields = (
         "skill",
     )
 
