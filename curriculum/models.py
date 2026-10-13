@@ -1,7 +1,15 @@
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+from django.core.validators import RegexValidator
 
+SKILL_CODE_VALIDATOR = RegexValidator(
+    regex=r"^[A-Z0-9][A-Z0-9._-]*$",
+    message=(
+        "Skill code must start with A-Z or 0-9 and contain only "
+        "A-Z, 0-9, '.', '_' or '-'."
+    ),
+)
 
 class Topic(models.Model):
     topic_id = models.BigAutoField(
@@ -46,6 +54,12 @@ class Skill(models.Model):
 
     skill_id = models.BigAutoField(
         primary_key=True,
+    )
+
+    skill_code = models.CharField(
+        max_length=64,
+        unique=True,
+        validators=[SKILL_CODE_VALIDATOR],
     )
 
     topic = models.ForeignKey(  #create 1 database
@@ -98,6 +112,11 @@ class Skill(models.Model):
                     ]
                 ),
                 name="ck_skill_cefr",
+            ),
+
+            models.CheckConstraint(
+                condition=~models.Q(skill_code=""),
+                name="ck_skill_code_nonblank",
             ),
         ]
 

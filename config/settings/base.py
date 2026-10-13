@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    "learning_engine",
 
 # Privet apps
     "core",
@@ -117,6 +118,24 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+MASTERY_RULE_V1 = {
+    "algorithm_version": "rule_v1",
+
+    # Bayesian prior
+    "alpha": "2",
+    "prior_mean": "0.50",
+
+    # Difficulty adjustment
+    "beta": "0.50",
+
+    # Time decay
+    "half_life_days": "21",
+
+    # Storage / UI thresholds
+    "min_observations": 3,
+    "mastered_min_observations": 5,
+    "mastered_threshold": "0.70",
+}
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/

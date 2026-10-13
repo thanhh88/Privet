@@ -71,22 +71,48 @@ def validate_options(question_type, options):
     Validate QuestionOption data.
 
     Each option is expected to contain:
+    - option_key
     - option_text
     - is_correct
     """
 
-    # If an option reaches this shared validator,
-    # it must contain non-empty text.
-    #
-    # Django Admin should filter out completely empty extra forms
-    # before calling this validator.
+    seen_option_keys = set()
+
     for option in options:
+        option_key = option.get("option_key")
+
+        if not isinstance(option_key, str) or not option_key.strip():
+            raise ValidationError(
+                "Option key must be a non-empty string."
+            )
+
+        normalized_key = option_key.strip()
+
+        if normalized_key in seen_option_keys:
+            raise ValidationError(
+                "A question must not contain duplicate option keys."
+            )
+
+        seen_option_keys.add(normalized_key)
+
         option_text = option.get("option_text")
 
         if not isinstance(option_text, str) or not option_text.strip():
             raise ValidationError(
                 "Option text must be a non-empty string."
             )
+
+        misconception_code = option.get("misconception_code")
+
+        if misconception_code is not None:
+            if (
+                    not isinstance(misconception_code, str)
+                    or not misconception_code.strip()
+            ):
+                raise ValidationError(
+                    "Misconception code must be a non-empty string "
+                    "when provided."
+                )
 
     correct_count = sum(
         1
@@ -120,6 +146,58 @@ def validate_options(question_type, options):
             "Define grading rules before using this question type."
         )
 
+def validate_item_format(question_type, item_format):
+    """
+    Validate the compatibility between the grading mechanism
+    and the pedagogical item format.
+
+    item_format is optional. When present, it must be compatible
+    with question_type.
+    """
+
+    if item_format is None or item_format == "":
+        return
+
+    multiple_choice_formats = {
+        "single_choice",
+        "contextual_choice",
+        "ru_to_vi",
+        "vi_to_ru",
+        "definition_to_ru",
+    }
+
+    fill_choice_formats = {
+        "fill_choice",
+        "cloze_ru",
+    }
+
+    if item_format in multiple_choice_formats:
+        if question_type != "multiple_choice":
+            raise ValidationError(
+                {
+                    "item_format":
+                        f'Item format "{item_format}" requires '
+                        'question_type="multiple_choice".'
+                }
+            )
+
+    elif item_format in fill_choice_formats:
+        if question_type != "fill_choice":
+            raise ValidationError(
+                {
+                    "item_format":
+                        f'Item format "{item_format}" requires '
+                        'question_type="fill_choice".'
+                }
+            )
+
+    else:
+        raise ValidationError(
+            {
+                "item_format":
+                    f'Unsupported item format: "{item_format}".'
+            }
+        )
 
 def validate_question_answer_fields(
     question_type,
