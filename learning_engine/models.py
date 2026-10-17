@@ -7,10 +7,32 @@ from django.db.models import (
 )
 from decimal import Decimal
 
+MASTERY_RULE_V1 = settings.MASTERY_RULE_V1
 
-class PracticeSession(models.Model):
+MASTERY_MIN_OBSERVATIONS = int(
+    MASTERY_RULE_V1["min_observations"]
+)
+
+MASTERY_MASTERED_MIN_OBSERVATIONS = int(
+    MASTERY_RULE_V1[
+        "mastered_min_observations"
+    ]
+)
+
+MASTERY_MASTERED_THRESHOLD = Decimal(
+    str(
+        MASTERY_RULE_V1[
+            "mastered_threshold"
+        ]
+    )
+)
+MASTERY_ALGORITHM_VERSION = str(
+    MASTERY_RULE_V1["algorithm_version"]
+)
+
+
+class AssessmentSession(models.Model):
     class Mode(models.TextChoices):
-        LESSON = "lesson", "Lesson"
         ADAPTIVE = "adaptive", "Adaptive"
         DIAGNOSTIC = "diagnostic", "Diagnostic"
 
@@ -26,15 +48,7 @@ class PracticeSession(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="practice_sessions",
-    )
-
-    lesson = models.ForeignKey(
-        "curriculum.Lesson",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="practice_sessions",
+        related_name="assessment_sessions",
     )
 
     mode = models.CharField(
@@ -80,6 +94,8 @@ class PracticeSession(models.Model):
                         ended_at__isnull=False,
                     )
                 ),
+                # Giữ tên cũ tạm thời để migration
+                # nhỏ hơn. R6 sẽ squash/clean tên.
                 name=(
                     "ck_practice_session_"
                     "status_ended_at"
@@ -87,21 +103,13 @@ class PracticeSession(models.Model):
             ),
 
             models.CheckConstraint(
-                condition=(
-                        Q(
-                            mode="lesson",
-                            lesson__isnull=False,
-                        )
-                        |
-                        Q(
-                            mode__in=[
-                                "adaptive",
-                                "diagnostic",
-                            ],
-                            lesson__isnull=True,
-                        )
+                condition=Q(
+                    mode__in=[
+                        "adaptive",
+                        "diagnostic",
+                    ]
                 ),
-                name="ck_practice_session_mode_lesson",
+                name="ck_assessment_session_mode",
             ),
         ]
 
@@ -120,27 +128,20 @@ class PracticeSession(models.Model):
 
         errors = {}
 
-        if self.mode == self.Mode.LESSON:
-            if self.lesson_id is None:
-                errors["lesson"] = (
-                    "Lesson mode requires a lesson."
-                )
-
-        elif self.mode in {
+        if self.mode not in {
             self.Mode.ADAPTIVE,
             self.Mode.DIAGNOSTIC,
         }:
-            if self.lesson_id is not None:
-                errors["lesson"] = (
-                    f"{self.mode} mode must not "
-                    "be linked to a lesson."
-                )
+            errors["mode"] = (
+                "Assessment session mode must be "
+                "adaptive or diagnostic."
+            )
 
         if self.status == self.Status.ACTIVE:
             if self.ended_at is not None:
                 errors["ended_at"] = (
-                    "Active sessions must not "
-                    "have ended_at."
+                    "Active assessment sessions "
+                    "must not have ended_at."
                 )
 
         elif self.status in {
@@ -149,8 +150,8 @@ class PracticeSession(models.Model):
         }:
             if self.ended_at is None:
                 errors["ended_at"] = (
-                    "Finished sessions require "
-                    "ended_at."
+                    "Finished assessment sessions "
+                    "require ended_at."
                 )
 
         if errors:
@@ -158,8 +159,9 @@ class PracticeSession(models.Model):
 
     def __str__(self):
         return (
-            f"Session {self.session_id} "
-            f"({self.user_id}, {self.status})"
+            f"AssessmentSession {self.session_id} "
+            f"({self.user_id}, "
+            f"{self.mode}, {self.status})"
         )
 
 class SessionQuestion(models.Model):
@@ -168,7 +170,7 @@ class SessionQuestion(models.Model):
     )
 
     session = models.ForeignKey(
-        PracticeSession,
+        AssessmentSession,
         on_delete=models.CASCADE,
         related_name="session_questions",
     )
@@ -178,6 +180,31 @@ class SessionQuestion(models.Model):
         on_delete=models.PROTECT,
         related_name="session_questions",
     )
+
+    # Historical assessment metadata frozen at the
+    # moment this Question is selected into the session.
+    #
+    # Do not recalculate historical evidence from the
+    # current Question Bank after this point.
+    difficulty_score_snapshot = models.DecimalField(
+        max_digits=5,
+        decimal_places=4,
+    )
+
+    # Historical Question -> Skill mappings frozen at
+    # selection time.
+    #
+    # Expected structure:
+    # [
+    #     {
+    #         "skill_id": 123,
+    #         "skill_code": "ACC-03",
+    #         "is_primary": True,
+    #         "weight": "0.70000",
+    #     },
+    #     ...
+    # ]
+    skill_snapshot = models.JSONField()
 
     sequence_number = models.PositiveIntegerField()
 
@@ -229,6 +256,13 @@ class SessionQuestion(models.Model):
                 ),
                 name="ck_sq_sequence_positive",
             ),
+            models.CheckConstraint(
+                condition=Q(
+                    difficulty_score_snapshot__gte=0,
+                    difficulty_score_snapshot__lte=1,
+                ),
+                name="ck_sq_difficulty_snapshot_range",
+            ),
         ]
 
         indexes = [
@@ -249,6 +283,7 @@ class SessionQuestion(models.Model):
             f"question={self.question_id}, "
             f"sequence={self.sequence_number})"
         )
+
 
 class QuestionAttempt(models.Model):
     attempt_id = models.BigAutoField(
@@ -511,7 +546,7 @@ class SkillMastery(models.Model):
     Derived rule-based mastery state for one User × Skill.
 
     Source of truth remains assessment history:
-        PracticeSession
+        AssessmentSession
         -> SessionQuestion
         -> QuestionAttempt
 
@@ -615,7 +650,7 @@ class SkillMastery(models.Model):
     # rule changes later.
     algorithm_version = models.CharField(
         max_length=32,
-        default="rule_v1",
+        default=MASTERY_ALGORITHM_VERSION,
     )
 
     class Meta:
@@ -647,20 +682,27 @@ class SkillMastery(models.Model):
                 name="ck_mastery_score_range",
             ),
 
-            # Current Privet rule:
-            # fewer than 3 valid observations
-            # => mastery remains NULL.
+            # Schema-level enforcement of the configured
+            # minimum evidence threshold.
+            #
+            # If MASTERY_RULE_V1["min_observations"] changes,
+            # create and apply a migration so the database
+            # constraint changes with it.
             models.CheckConstraint(
                 condition=(
-                    Q(
-                        observation_count__lt=3,
-                        mastery_score__isnull=True,
-                    )
-                    |
-                    Q(
-                        observation_count__gte=3,
-                        mastery_score__isnull=False,
-                    )
+                        Q(
+                            observation_count__lt=(
+                                MASTERY_MIN_OBSERVATIONS
+                            ),
+                            mastery_score__isnull=True,
+                        )
+                        |
+                        Q(
+                            observation_count__gte=(
+                                MASTERY_MIN_OBSERVATIONS
+                            ),
+                            mastery_score__isnull=False,
+                        )
                 ),
                 name="ck_mastery_min_observations",
             ),
@@ -737,17 +779,19 @@ class SkillMastery(models.Model):
     @property
     def has_sufficient_data(self):
         return (
-            self.observation_count >= 3
-            and self.mastery_score is not None
+                self.observation_count
+                >= MASTERY_MIN_OBSERVATIONS
+                and self.mastery_score is not None
         )
 
     @property
     def is_mastered(self):
         return (
-            self.observation_count >= 5
-            and self.mastery_score is not None
-            and self.mastery_score
-            >= Decimal("0.70000")
+                self.observation_count
+                >= MASTERY_MASTERED_MIN_OBSERVATIONS
+                and self.mastery_score is not None
+                and self.mastery_score
+                >= MASTERY_MASTERED_THRESHOLD
         )
 
     def __str__(self):

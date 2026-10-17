@@ -11,7 +11,10 @@ from curriculum.models import (
     Skill,
     Topic,
 )
-from learning_engine.models import SkillMastery
+from learning_engine.models import (
+    AssessmentSession,
+    SkillMastery,
+)
 from tracking.models import (
     StudyEvent,
     StudySession,
@@ -364,5 +367,145 @@ class LearningCompletionEventTests(TestCase):
             SkillMastery.objects.filter(
                 user=self.user,
                 skill=self.skill,
+            ).exists()
+        )
+
+
+class AssessmentTrackingDeletionTests(TestCase):
+    """
+    Regression coverage for A2.
+
+    Assessment-linked StudySession and StudyEvent rows use
+    CASCADE rather than SET_NULL. This prevents the tracking
+    target CHECK constraints from being violated during
+    AssessmentSession or User deletion.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            email="tracking-delete@example.com",
+            password="test-password-123",
+        )
+
+    def create_assessment_tracking(self):
+        now = timezone.now()
+
+        assessment = AssessmentSession.objects.create(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+            status=AssessmentSession.Status.ACTIVE,
+        )
+
+        study_session = StudySession.objects.create(
+            user=self.user,
+            lesson=None,
+            assessment_session=assessment,
+            activity_type=StudySession.ActivityType.TEST,
+            status=StudySession.Status.ACTIVE,
+            last_activity_at=now,
+            active_seconds=0,
+        )
+
+        study_event = StudyEvent.objects.create(
+            session=study_session,
+            user=self.user,
+            event_type=StudyEvent.EventType.TEST_STARTED,
+            lesson=None,
+            assessment_session=assessment,
+            occurred_at=now,
+        )
+
+        return (
+            assessment,
+            study_session,
+            study_event,
+        )
+
+    def test_deleting_assessment_cascades_test_tracking(
+        self,
+    ):
+        (
+            assessment,
+            study_session,
+            study_event,
+        ) = self.create_assessment_tracking()
+
+        assessment_id = assessment.pk
+        study_session_id = study_session.pk
+        study_event_id = study_event.pk
+        user_id = self.user.pk
+
+        # Before A2 this deletion could fail when Django
+        # SET_NULLed assessment_session while the tracking
+        # target CHECK still required it for test activity.
+        assessment.delete()
+
+        self.assertFalse(
+            AssessmentSession.objects.filter(
+                pk=assessment_id,
+            ).exists()
+        )
+
+        self.assertFalse(
+            StudySession.objects.filter(
+                pk=study_session_id,
+            ).exists()
+        )
+
+        self.assertFalse(
+            StudyEvent.objects.filter(
+                pk=study_event_id,
+            ).exists()
+        )
+
+        # Deleting one assessment must not delete its user.
+        self.assertTrue(
+            User.objects.filter(
+                pk=user_id,
+            ).exists()
+        )
+
+    def test_deleting_user_with_assessment_tracking_succeeds(
+        self,
+    ):
+        (
+            assessment,
+            study_session,
+            study_event,
+        ) = self.create_assessment_tracking()
+
+        user_id = self.user.pk
+        assessment_id = assessment.pk
+        study_session_id = study_session.pk
+        study_event_id = study_event.pk
+
+        # This is the exact A2 regression scenario:
+        # deleting a User with assessment tracking must
+        # cascade cleanly instead of violating the tracking
+        # target CHECK constraints.
+        self.user.delete()
+
+        self.assertFalse(
+            User.objects.filter(
+                pk=user_id,
+            ).exists()
+        )
+
+        self.assertFalse(
+            AssessmentSession.objects.filter(
+                pk=assessment_id,
+            ).exists()
+        )
+
+        self.assertFalse(
+            StudySession.objects.filter(
+                pk=study_session_id,
+            ).exists()
+        )
+
+        self.assertFalse(
+            StudyEvent.objects.filter(
+                pk=study_event_id,
             ).exists()
         )

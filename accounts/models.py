@@ -29,6 +29,11 @@ class User(AbstractUser):
         blank=True,
     )
 
+    prior_russian_experience = models.BooleanField(
+        null=True,
+        blank=True,
+    )
+
     objects = UserManager()
 
     USERNAME_FIELD = "email"

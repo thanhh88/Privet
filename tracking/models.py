@@ -50,8 +50,8 @@ class StudySession(models.Model):
     # Current Privet architecture uses PracticeSession
     # for adaptive / diagnostic assessments.
     assessment_session = models.ForeignKey(
-        "learning_engine.PracticeSession",
-        on_delete=models.SET_NULL,
+        "learning_engine.AssessmentSession",
+        on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="study_sessions",
@@ -306,8 +306,8 @@ class StudyEvent(models.Model):
     )
 
     assessment_session = models.ForeignKey(
-        "learning_engine.PracticeSession",
-        on_delete=models.SET_NULL,
+        "learning_engine.AssessmentSession",
+        on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="study_events",

@@ -1,4 +1,3 @@
-from collections import defaultdict
 from dataclasses import dataclass
 from datetime import (
     datetime,
@@ -17,12 +16,11 @@ from django.utils import timezone
 
 from curriculum.models import Skill
 from learning_engine.models import (
-    PracticeSession,
+    AssessmentSession,
     QuestionAttempt,
     SessionQuestion,
     SkillMastery,
 )
-from questionbank.models import QuestionSkill
 from tracking.models import StudyEvent
 
 @dataclass(frozen=True)
@@ -132,8 +130,12 @@ def collect_skill_evidence(
     5. If a viewed question has no attempts, it is
        treated as an incorrect observation.
     6. A Question contributes separately to every
-       linked QuestionSkill according to its weight.
-    7. evidence_at is the assessment completion time,
+       snapshotted Skill mapping according to its
+       snapshotted weight.
+    7. Difficulty and Skill mappings are read from
+       SessionQuestion historical snapshots, never
+       from the current Question Bank.
+    8. evidence_at is the assessment completion time,
        not the individual answer timestamp.
 
     No mastery score is calculated here.
@@ -152,11 +154,11 @@ def collect_skill_evidence(
         .filter(
             session__user=user,
             session__status=(
-                PracticeSession.Status.COMPLETED
+                AssessmentSession.Status.COMPLETED
             ),
             session__mode__in=[
-                PracticeSession.Mode.ADAPTIVE,
-                PracticeSession.Mode.DIAGNOSTIC,
+                AssessmentSession.Mode.ADAPTIVE,
+                AssessmentSession.Mode.DIAGNOSTIC,
             ],
             first_viewed_at__isnull=False,
         )
@@ -181,41 +183,6 @@ def collect_skill_evidence(
     if not session_questions:
         return []
 
-    question_ids = {
-        session_question.question_id
-        for session_question
-        in session_questions
-    }
-
-    skill_links_queryset = (
-        QuestionSkill.objects
-        .filter(
-            question_id__in=question_ids
-        )
-        .select_related(
-            "skill"
-        )
-        .order_by(
-            "question_id",
-            "-is_primary",
-            "skill_id",
-        )
-    )
-
-    if skill_id is not None:
-        skill_links_queryset = (
-            skill_links_queryset.filter(
-                skill_id=skill_id
-            )
-        )
-
-    links_by_question = defaultdict(list)
-
-    for link in skill_links_queryset:
-        links_by_question[
-            link.question_id
-        ].append(link)
-
     evidence_rows = []
 
     for session_question in session_questions:
@@ -231,13 +198,34 @@ def collect_skill_evidence(
                 "must have ended_at."
             )
 
-        skill_links = links_by_question.get(
-            question.pk,
-            [],
+        if (
+            session_question.difficulty_score_snapshot
+            is None
+        ):
+            raise RuntimeError(
+                "SessionQuestion is missing "
+                "difficulty_score_snapshot."
+            )
+
+        difficulty_score = Decimal(
+            str(
+                session_question
+                .difficulty_score_snapshot
+            )
         )
 
-        if not skill_links:
-            continue
+        skill_snapshot = (
+            session_question.skill_snapshot
+        )
+
+        if (
+            not isinstance(skill_snapshot, list)
+            or not skill_snapshot
+        ):
+            raise RuntimeError(
+                "SessionQuestion must contain a "
+                "non-empty skill_snapshot."
+            )
 
         attempts = (
             session_question._evidence_attempts
@@ -271,47 +259,144 @@ def collect_skill_evidence(
             final_attempt_id = None
             final_attempt_number = None
 
-        for skill_link in skill_links:
+        for skill_data in skill_snapshot:
+            if not isinstance(
+                skill_data,
+                dict,
+            ):
+                raise RuntimeError(
+                    "Each skill_snapshot item "
+                    "must be an object."
+                )
+
+            try:
+                snapshot_skill_id = (
+                    skill_data["skill_id"]
+                )
+                snapshot_skill_code = (
+                    skill_data["skill_code"]
+                )
+                snapshot_is_primary = (
+                    skill_data["is_primary"]
+                )
+                snapshot_weight_raw = (
+                    skill_data["weight"]
+                )
+            except KeyError as exc:
+                raise RuntimeError(
+                    "skill_snapshot item is missing "
+                    f"required field {exc.args[0]!r}."
+                ) from exc
+
+            if (
+                isinstance(
+                    snapshot_skill_id,
+                    bool,
+                )
+                or not isinstance(
+                    snapshot_skill_id,
+                    int,
+                )
+                or snapshot_skill_id < 1
+            ):
+                raise RuntimeError(
+                    "skill_snapshot skill_id must "
+                    "be a positive integer."
+                )
+
+            if (
+                not isinstance(
+                    snapshot_skill_code,
+                    str,
+                )
+                or not snapshot_skill_code.strip()
+            ):
+                raise RuntimeError(
+                    "skill_snapshot skill_code must "
+                    "be a non-blank string."
+                )
+
+            if not isinstance(
+                snapshot_is_primary,
+                bool,
+            ):
+                raise RuntimeError(
+                    "skill_snapshot is_primary must "
+                    "be a boolean."
+                )
+
+            try:
+                snapshot_weight = Decimal(
+                    str(
+                        snapshot_weight_raw
+                    )
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    "skill_snapshot weight must "
+                    "be a valid decimal value."
+                ) from exc
+
+            if not snapshot_weight.is_finite():
+                raise RuntimeError(
+                    "skill_snapshot weight must "
+                    "be finite."
+                )
+
+            # Filtering must use historical snapshot
+            # data, not current QuestionSkill rows.
+            if (
+                skill_id is not None
+                and snapshot_skill_id != skill_id
+            ):
+                continue
+
             evidence_rows.append(
                 SkillEvidence(
                     sequence_number=(
                         session_question.sequence_number
                     ),
+
                     is_primary=(
-                        skill_link.is_primary
+                        snapshot_is_primary
                     ),
+
                     session_question_id=(
                         session_question.pk
                     ),
+
                     session_id=(
                         session_question.session_id
                     ),
+
                     question_id=question.pk,
                     source_id=question.source_id,
 
                     skill_id=(
-                        skill_link.skill_id
-                    ),
-                    skill_code=(
-                        skill_link.skill.skill_code
-                    ),
-                    skill_weight=Decimal(
-                        str(skill_link.weight)
+                        snapshot_skill_id
                     ),
 
-                    difficulty_score=Decimal(
-                        str(
-                            question.difficulty_score
-                        )
+                    skill_code=(
+                        snapshot_skill_code
+                    ),
+
+                    skill_weight=(
+                        snapshot_weight
+                    ),
+
+                    difficulty_score=(
+                        difficulty_score
                     ),
 
                     is_correct=is_correct,
+
                     was_unanswered=(
                         was_unanswered
                     ),
 
                     active_response_time_ms=(
-                        session_question.active_response_time_ms
+                        session_question
+                        .active_response_time_ms
                     ),
 
                     evidence_at=evidence_at,
@@ -319,6 +404,7 @@ def collect_skill_evidence(
                     final_attempt_id=(
                         final_attempt_id
                     ),
+
                     final_attempt_number=(
                         final_attempt_number
                     ),
@@ -337,7 +423,7 @@ _MICROSECONDS_PER_SECOND = Decimal("1000000")
 def _weighted_accuracy(evidence):
     """
     Weighted correctness mean using
-    QuestionSkill.weight.
+    the snapshotted Skill weight.
 
     Returns None when there is no evidence.
     """
@@ -425,7 +511,7 @@ def _count_consecutive_errors(evidence):
 
     Only evidence where:
         - the Skill is primary, OR
-        - QuestionSkill.weight >= 0.5
+        - snapshotted Skill weight >= 0.5
 
     contributes to the streak.
 
@@ -492,15 +578,17 @@ def calculate_mastery(
     as_of=None,
 ):
     """
-    Calculate rule_v1 mastery and learner-state
-    metrics from SkillEvidence rows.
+    Calculate mastery and learner-state metrics from
+    SkillEvidence rows.
 
-    Mastery formula
-    ---------------
-    M_hat =
-        (alpha * m0 + SUM(a_i * y_i))
-        /
-        (alpha + SUM(a_i))
+    Historical mastery
+    ------------------
+    Evidence is evaluated at the newest evidence time:
+
+        M_last =
+            (alpha * m0 + SUM(a_i * y_i))
+            /
+            (alpha + SUM(a_i))
 
     where:
 
@@ -509,11 +597,37 @@ def calculate_mastery(
             * c_i
             * 2 ^ (-delta_i / H)
 
+        delta_i =
+            last_evidence_at - evidence_at_i
+
         c_i =
             1
             + beta
             * (d_i - 0.5)
             * (2*y_i - 1)
+
+    Personalized inactivity decay
+    -----------------------------
+    If M_last > m0:
+
+        M_current =
+            m0
+            + (M_last - m0)
+            * 2 ^ (-staleness / H)
+
+    where:
+
+        staleness =
+            as_of - last_evidence_at
+
+    If M_last <= m0:
+
+        M_current = M_last
+
+    Therefore inactivity can reduce previously
+    demonstrated mastery above the prior, but can
+    never improve a weak learner merely because no
+    new evidence was observed.
 
     Additional learner-state metrics
     --------------------------------
@@ -537,7 +651,7 @@ def calculate_mastery(
     The function is pure:
     - no database writes;
     - the caller's evidence collection is not mutated;
-    - internal M_hat always exists;
+    - internal mastery_estimate always exists;
     - mastery_score is NULL while observation_count
       is below the configured minimum.
     """
@@ -664,6 +778,31 @@ def calculate_mastery(
     )
 
     # -----------------------------------------
+    # Historical anchor
+    # -----------------------------------------
+    #
+    # Evidence history is evaluated at the moment
+    # of the newest valid evidence.
+    #
+    # Inactivity after that moment is handled
+    # separately below. This prevents weak learners
+    # from drifting upward toward the prior merely
+    # because time passes.
+
+    last_evidence_at = None
+
+    if evidence:
+        last_evidence_at = (
+            evidence[-1].evidence_at
+        )
+
+        if last_evidence_at > as_of:
+            raise ValueError(
+                "Newest evidence timestamp must not "
+                "be later than as_of."
+            )
+
+    # -----------------------------------------
     # Mastery calculation
     # -----------------------------------------
 
@@ -712,15 +851,27 @@ def calculate_mastery(
                     "between 0 and 1."
                 )
 
+            # Historical evidence ages only relative
+            # to the newest evidence event.
+            #
+            # It must not continue to age every time
+            # learner state is merely recalculated.
+            historical_anchor = (
+                last_evidence_at
+                if last_evidence_at is not None
+                else as_of
+            )
+
             age = (
-                as_of
+                historical_anchor
                 - row.evidence_at
             )
 
             if age < timedelta(0):
                 raise ValueError(
                     "Evidence timestamp must not "
-                    "be later than as_of."
+                    "be later than the historical "
+                    "anchor."
                 )
 
             age_days = (
@@ -766,17 +917,13 @@ def calculate_mastery(
                 )
 
             # ---------------------------------
-            # Time decay
+            # Historical time decay
             #
             # decay =
             # 2 ^ (-delta_days / H)
             #
-            # Implemented with Decimal:
-            #
-            # exp(
-            #     ln(2)
-            #     * (-delta_days / H)
-            # )
+            # delta_days is measured from this
+            # evidence row to last_evidence_at.
             # ---------------------------------
 
             exponent = -(
@@ -793,7 +940,7 @@ def calculate_mastery(
             )
 
             # ---------------------------------
-            # Effective evidence weight
+            # Effective historical evidence weight
             #
             # a_i =
             # w_i * c_i * decay_i
@@ -814,10 +961,71 @@ def calculate_mastery(
                 effective_weight
             )
 
-        mastery_estimate = (
+        # IMPORTANT:
+        # Everything from here onward is outside
+        # the evidence loop. This also makes cold
+        # start (evidence == []) valid.
+        mastery_at_last_evidence = (
             numerator
             / denominator
         )
+
+        # -----------------------------------------
+        # Personalized inactivity decay
+        # -----------------------------------------
+        #
+        # The learner's latest observed mastery is
+        # the anchor.
+        #
+        # Knowledge above the prior may decay toward
+        # the prior during inactivity.
+        #
+        # Knowledge at or below the prior never
+        # improves merely because time passes.
+
+        mastery_estimate = (
+            mastery_at_last_evidence
+        )
+
+        if (
+            last_evidence_at is not None
+            and as_of > last_evidence_at
+            and mastery_at_last_evidence
+            > prior_mean
+        ):
+            inactivity_age = (
+                as_of
+                - last_evidence_at
+            )
+
+            inactivity_days = (
+                _timedelta_days(
+                    inactivity_age
+                )
+            )
+
+            inactivity_exponent = -(
+                inactivity_days
+                / half_life_days
+            )
+
+            inactivity_decay = (
+                (
+                    Decimal("2").ln()
+                    * inactivity_exponent
+                )
+                .exp()
+            )
+
+            mastery_estimate = (
+                prior_mean
+                +
+                (
+                    mastery_at_last_evidence
+                    - prior_mean
+                )
+                * inactivity_decay
+            )
 
         mastery_score = None
 
@@ -869,19 +1077,11 @@ def calculate_mastery(
         )
     )
 
-    # Because evidence has already been sorted,
-    # the final row is the newest observation.
-    last_evidence_at = None
-
-    if evidence:
-        last_evidence_at = (
-            evidence[-1].evidence_at
-        )
-
     return MasteryCalculation(
         mastery_estimate=(
             mastery_estimate
         ),
+
         mastery_score=(
             mastery_score
         ),
@@ -889,6 +1089,7 @@ def calculate_mastery(
         observation_count=(
             observation_count
         ),
+
         correct_attempts=(
             correct_attempts
         ),
@@ -896,6 +1097,7 @@ def calculate_mastery(
         recent_accuracy=(
             recent_accuracy
         ),
+
         historical_accuracy=(
             historical_accuracy
         ),
@@ -911,12 +1113,14 @@ def calculate_mastery(
         last_evidence_at=(
             last_evidence_at
         ),
+
         calculated_at=as_of,
 
         algorithm_version=(
             algorithm_version
         ),
     )
+
 
 @transaction.atomic
 def recalculate_learning_recency(
@@ -1311,3 +1515,134 @@ def recalculate_skill_mastery(
     )
 
     return results[0]
+
+def _skill_mastery_needs_refresh(
+    *,
+    state,
+    as_of,
+):
+    """
+    Return True when a persisted SkillMastery snapshot
+    must be rebuilt before it is used.
+
+    Refresh conditions:
+    - no snapshot exists;
+    - snapshot has never been calculated;
+    - snapshot uses an obsolete algorithm version;
+    - snapshot is at least refresh_after_hours old.
+
+    A caller must not request a point in time earlier
+    than an already persisted calculation timestamp.
+    """
+
+    config = settings.MASTERY_RULE_V1
+
+    current_algorithm_version = str(
+        config["algorithm_version"]
+    ).strip()
+
+    if not current_algorithm_version:
+        raise ValueError(
+            "Mastery algorithm_version must not "
+            "be blank."
+        )
+
+    refresh_after_hours = int(
+        config["refresh_after_hours"]
+    )
+
+    if refresh_after_hours < 1:
+        raise ValueError(
+            "Mastery refresh_after_hours must "
+            "be at least 1."
+        )
+
+    if state is None:
+        return True
+
+    if (
+        state.calculated_at is not None
+        and state.calculated_at > as_of
+    ):
+        raise ValueError(
+            "Mastery as_of must not be earlier "
+            "than calculated_at."
+        )
+
+    if state.calculated_at is None:
+        return True
+
+    if (
+        state.algorithm_version
+        != current_algorithm_version
+    ):
+        return True
+
+    refresh_interval = timedelta(
+        hours=refresh_after_hours
+    )
+
+    snapshot_age = (
+        as_of
+        - state.calculated_at
+    )
+
+    return snapshot_age >= refresh_interval
+
+
+def ensure_skill_mastery_current(
+    *,
+    user,
+    skill_id,
+    as_of=None,
+):
+    """
+    Return a current persisted SkillMastery snapshot.
+
+    This is the read gateway that consumers such as
+    Skill Priority and Recommendation should use
+    instead of directly trusting an arbitrary
+    SkillMastery row.
+
+    A stale, missing, uncalculated, or obsolete-version
+    snapshot is rebuilt from authoritative assessment
+    history before being returned.
+    """
+
+    if user.pk is None:
+        raise ValueError(
+            "User must be saved before mastery "
+            "can be loaded."
+        )
+
+    if as_of is None:
+        as_of = timezone.now()
+
+    state = (
+        SkillMastery.objects
+        .filter(
+            user=user,
+            skill_id=skill_id,
+        )
+        .first()
+    )
+
+    if _skill_mastery_needs_refresh(
+        state=state,
+        as_of=as_of,
+    ):
+        recalculate_skill_mastery(
+            user=user,
+            skill_id=skill_id,
+            as_of=as_of,
+        )
+
+        state = (
+            SkillMastery.objects
+            .get(
+                user=user,
+                skill_id=skill_id,
+            )
+        )
+
+    return state

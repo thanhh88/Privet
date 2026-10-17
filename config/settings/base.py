@@ -119,7 +119,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 MASTERY_RULE_V1 = {
-    "algorithm_version": "rule_v1",
+    "algorithm_version": "rule_v2",
 
     # Bayesian prior
     "alpha": "2",
@@ -135,6 +135,9 @@ MASTERY_RULE_V1 = {
     "min_observations": 3,
     "mastered_min_observations": 5,
     "mastered_threshold": "0.70",
+
+    # Lazy refresh
+    "refresh_after_hours": 24,
 }
 
 # Internationalization
