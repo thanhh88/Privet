@@ -170,6 +170,26 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = "accounts.User"
 
+
+RECOMMENDATION_RANKING = {
+    "version": "recommendation_ranking_v1",
+    "default_top_n": 3,
+    "weights": {
+        "weakness": "0.25",
+        "recurring_errors": "0.15",
+        "review_urgency": "0.20",
+        "uncertainty": "0.10",
+        "recent_learning": "0.10",
+        "prerequisite_readiness": "0.10",
+        "continuity": "0.07",
+        "novelty": "0.03",
+        # R4 intentionally exposes no reliable common difficulty signal yet.
+        # Keep the feature in the versioned schema with zero weight until a
+        # later policy version can support it from real metadata.
+        "difficulty_fit": "0.00",
+    },
+}
+
 VOCABULARY_SRS = {
     "version": "leitner_v1",
     "intervals": {

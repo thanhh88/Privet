@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from curriculum.models import (
@@ -31,6 +31,13 @@ from recommendation.features import (
     FEATURE_VERSION,
     RecommendationFeatureVector,
     build_recommendation_features,
+)
+from recommendation.ranking import (
+    RankedRecommendation,
+    RecommendationScoreComponent,
+    rank_recommendation_features,
+    rank_recommendations,
+    score_recommendation_features,
 )
 from vocabulary.models import (
     VocabularyItem,
@@ -1709,3 +1716,479 @@ class RecommendationFeatureCalculationTests(TestCase):
             "vocab_states": VocabularySRSState.objects.count(),
         }
         self.assertEqual(after, before)
+
+
+class RecommendationRankingTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            email="r5-ranking@example.com",
+            password="password123",
+        )
+        self.as_of = timezone.now()
+
+    def _candidate(
+        self,
+        key,
+        candidate_type=RecommendationCandidateType.START_LESSON,
+        *,
+        lesson_id=None,
+        display_order=None,
+        session_id=None,
+    ):
+        return RecommendationCandidate(
+            candidate_key=key,
+            candidate_type=candidate_type,
+            lesson_id=lesson_id,
+            lesson_display_order=display_order,
+            assessment_session_id=session_id,
+        )
+
+    def _vector(
+        self,
+        key,
+        candidate_type=RecommendationCandidateType.START_LESSON,
+        *,
+        lesson_id=None,
+        display_order=None,
+        session_id=None,
+        feature_version=FEATURE_VERSION,
+        weakness=None,
+        recurring_errors=None,
+        review_urgency=None,
+        uncertainty=None,
+        recent_learning=None,
+        prerequisite_readiness=None,
+        continuity=Decimal("0"),
+        novelty=Decimal("0"),
+        difficulty_fit=None,
+    ):
+        return RecommendationFeatureVector(
+            candidate=self._candidate(
+                key,
+                candidate_type,
+                lesson_id=lesson_id,
+                display_order=display_order,
+                session_id=session_id,
+            ),
+            feature_version=feature_version,
+            skill_scope_ids=(),
+            weakness=weakness,
+            recurring_errors=recurring_errors,
+            review_urgency=review_urgency,
+            uncertainty=uncertainty,
+            recent_learning=recent_learning,
+            prerequisite_readiness=prerequisite_readiness,
+            continuity=continuity,
+            novelty=novelty,
+            difficulty_fit=difficulty_fit,
+        )
+
+    def test_score_uses_versioned_default_policy(self):
+        row = self._vector(
+            "r5:score",
+            weakness=Decimal("1"),
+            recurring_errors=Decimal("0"),
+            review_urgency=Decimal("0.5"),
+            continuity=Decimal("0"),
+            novelty=Decimal("1"),
+        )
+
+        scored = score_recommendation_features(
+            feature_vectors=(row,),
+        )[0]
+
+        self.assertEqual(scored.scoring_version, "recommendation_ranking_v1")
+        # numerator = .25 + .20*.5 + .03 = .38
+        # denominator = .25 + .15 + .20 + .07 + .03 = .70
+        self.assertEqual(scored.score, Decimal("0.54286"))
+        self.assertEqual(
+            scored.configured_weight_sum,
+            Decimal("0.70000"),
+        )
+
+    def test_none_features_are_excluded_from_denominator(self):
+        row = self._vector(
+            "r5:none",
+            candidate_type=RecommendationCandidateType.VOCABULARY_REVIEW,
+            review_urgency=Decimal("1"),
+            continuity=Decimal("0"),
+            novelty=Decimal("0"),
+        )
+
+        scored = score_recommendation_features(
+            feature_vectors=(row,),
+        )[0]
+
+        self.assertEqual(
+            scored.configured_weight_sum,
+            Decimal("0.30000"),
+        )
+        self.assertEqual(scored.score, Decimal("0.66667"))
+
+    def test_real_zero_feature_remains_in_denominator(self):
+        with_zero = self._vector(
+            "r5:zero",
+            weakness=Decimal("0"),
+            review_urgency=Decimal("1"),
+            continuity=Decimal("0"),
+            novelty=Decimal("0"),
+        )
+        without_weakness = self._vector(
+            "r5:none-weakness",
+            weakness=None,
+            review_urgency=Decimal("1"),
+            continuity=Decimal("0"),
+            novelty=Decimal("0"),
+        )
+
+        scored_zero = score_recommendation_features(
+            feature_vectors=(with_zero,),
+        )[0]
+        scored_none = score_recommendation_features(
+            feature_vectors=(without_weakness,),
+        )[0]
+
+        self.assertLess(scored_zero.score, scored_none.score)
+        self.assertEqual(scored_zero.score, Decimal("0.36364"))
+        self.assertEqual(scored_none.score, Decimal("0.66667"))
+
+    def test_zero_weight_difficulty_is_ignored_even_when_present(self):
+        base = self._vector(
+            "r5:difficulty-a",
+            review_urgency=Decimal("0.5"),
+            continuity=Decimal("0"),
+            novelty=Decimal("0"),
+            difficulty_fit=Decimal("0"),
+        )
+        changed = self._vector(
+            "r5:difficulty-b",
+            review_urgency=Decimal("0.5"),
+            continuity=Decimal("0"),
+            novelty=Decimal("0"),
+            difficulty_fit=Decimal("1"),
+        )
+
+        rows = score_recommendation_features(
+            feature_vectors=(base, changed),
+        )
+
+        self.assertEqual(rows[0].score, rows[1].score)
+        for row in rows:
+            self.assertNotIn(
+                "difficulty_fit",
+                {component.feature_name for component in row.components},
+            )
+
+    def test_score_components_expose_effective_contributions(self):
+        row = self._vector(
+            "r5:components",
+            review_urgency=Decimal("1"),
+            continuity=Decimal("0"),
+            novelty=Decimal("0"),
+        )
+
+        scored = score_recommendation_features(
+            feature_vectors=(row,),
+        )[0]
+        components = {
+            component.feature_name: component
+            for component in scored.components
+        }
+
+        review = components["review_urgency"]
+        self.assertIsInstance(review, RecommendationScoreComponent)
+        self.assertEqual(review.value, Decimal("1.00000"))
+        self.assertEqual(review.configured_weight, Decimal("0.20000"))
+        self.assertEqual(review.effective_weight, Decimal("0.66667"))
+        self.assertEqual(review.contribution, Decimal("0.66667"))
+
+    def test_invalid_feature_value_is_rejected(self):
+        row = self._vector(
+            "r5:bad-value",
+            weakness=Decimal("1.01"),
+        )
+
+        with self.assertRaisesRegex(ValueError, r"\[0, 1\]"):
+            score_recommendation_features(feature_vectors=(row,))
+
+    def test_wrong_feature_version_is_rejected(self):
+        row = self._vector(
+            "r5:old-feature-version",
+            feature_version="recommendation_features_old",
+        )
+
+        with self.assertRaisesRegex(ValueError, "current R4 feature version"):
+            score_recommendation_features(feature_vectors=(row,))
+
+    def test_duplicate_candidate_keys_are_rejected(self):
+        one = self._vector("r5:duplicate", weakness=Decimal("0.2"))
+        two = self._vector("r5:duplicate", weakness=Decimal("0.9"))
+
+        with self.assertRaisesRegex(ValueError, "unique"):
+            score_recommendation_features(feature_vectors=(one, two))
+
+    def test_non_feature_vector_is_rejected(self):
+        with self.assertRaises(TypeError):
+            score_recommendation_features(feature_vectors=(object(),))
+
+    def test_empty_feature_set_returns_empty_ranking(self):
+        self.assertEqual(
+            rank_recommendation_features(feature_vectors=()),
+            (),
+        )
+
+    def test_default_top_n_is_three(self):
+        rows = tuple(
+            self._vector(
+                f"r5:top:{index}",
+                weakness=Decimal(str(value)),
+            )
+            for index, value in enumerate(("0.1", "0.2", "0.3", "0.4", "0.5"))
+        )
+
+        ranked = rank_recommendation_features(feature_vectors=rows)
+
+        self.assertEqual(len(ranked), 3)
+        self.assertEqual([row.rank for row in ranked], [1, 2, 3])
+
+    def test_explicit_limit_is_respected(self):
+        rows = tuple(
+            self._vector(
+                f"r5:limit:{index}",
+                weakness=Decimal(str(value)),
+            )
+            for index, value in enumerate(("0.1", "0.2", "0.3"))
+        )
+
+        ranked = rank_recommendation_features(
+            feature_vectors=rows,
+            limit=2,
+        )
+
+        self.assertEqual(len(ranked), 2)
+
+    def test_invalid_limit_is_rejected(self):
+        row = self._vector("r5:limit-invalid", weakness=Decimal("0.5"))
+
+        for value in (0, -1, True, "2"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "positive integer"):
+                    rank_recommendation_features(
+                        feature_vectors=(row,),
+                        limit=value,
+                    )
+
+    def test_higher_score_is_primary_order(self):
+        low = self._vector(
+            "r5:low",
+            candidate_type=RecommendationCandidateType.RESUME_ASSESSMENT,
+            weakness=Decimal("0.1"),
+            continuity=Decimal("0"),
+        )
+        high = self._vector(
+            "r5:high",
+            candidate_type=RecommendationCandidateType.START_ADAPTIVE_ASSESSMENT,
+            weakness=Decimal("0.9"),
+            continuity=Decimal("0"),
+        )
+
+        ranked = rank_recommendation_features(
+            feature_vectors=(low, high),
+            limit=2,
+        )
+
+        self.assertEqual(ranked[0].candidate.candidate_key, "r5:high")
+        self.assertGreater(ranked[0].score, ranked[1].score)
+
+    def test_exact_score_tie_prefers_ongoing_work_type(self):
+        resume = self._vector(
+            "r5:resume",
+            candidate_type=RecommendationCandidateType.RESUME_ASSESSMENT,
+            weakness=Decimal("0.5"),
+        )
+        start = self._vector(
+            "r5:start",
+            candidate_type=RecommendationCandidateType.START_LESSON,
+            weakness=Decimal("0.5"),
+        )
+
+        ranked = rank_recommendation_features(
+            feature_vectors=(start, resume),
+            limit=2,
+        )
+
+        self.assertEqual(ranked[0].candidate.candidate_key, "r5:resume")
+        self.assertEqual(ranked[0].score, ranked[1].score)
+
+    def test_equal_lesson_score_uses_display_order_tie_break(self):
+        later = self._vector(
+            "lesson:start:20",
+            lesson_id=20,
+            display_order=20,
+            weakness=Decimal("0.5"),
+        )
+        earlier = self._vector(
+            "lesson:start:10",
+            lesson_id=10,
+            display_order=10,
+            weakness=Decimal("0.5"),
+        )
+
+        ranked = rank_recommendation_features(
+            feature_vectors=(later, earlier),
+            limit=2,
+        )
+
+        self.assertEqual(ranked[0].candidate.lesson_id, 10)
+
+    def test_final_tie_break_is_candidate_key(self):
+        zed = self._vector(
+            "assessment:start:z",
+            candidate_type=RecommendationCandidateType.START_ADAPTIVE_ASSESSMENT,
+            weakness=Decimal("0.5"),
+        )
+        alpha = self._vector(
+            "assessment:start:a",
+            candidate_type=RecommendationCandidateType.START_ADAPTIVE_ASSESSMENT,
+            weakness=Decimal("0.5"),
+        )
+
+        ranked = rank_recommendation_features(
+            feature_vectors=(zed, alpha),
+            limit=2,
+        )
+
+        self.assertEqual(
+            [row.candidate.candidate_key for row in ranked],
+            ["assessment:start:a", "assessment:start:z"],
+        )
+
+    def test_ranking_is_deterministic_across_input_order(self):
+        rows = (
+            self._vector("r5:c", weakness=Decimal("0.5"), display_order=3),
+            self._vector("r5:a", weakness=Decimal("0.5"), display_order=1),
+            self._vector("r5:b", weakness=Decimal("0.5"), display_order=2),
+        )
+
+        first = rank_recommendation_features(
+            feature_vectors=rows,
+            limit=3,
+        )
+        second = rank_recommendation_features(
+            feature_vectors=tuple(reversed(rows)),
+            limit=3,
+        )
+
+        self.assertEqual(
+            [row.candidate.candidate_key for row in first],
+            [row.candidate.candidate_key for row in second],
+        )
+
+    @override_settings(
+        RECOMMENDATION_RANKING={
+            "version": "bad",
+            "default_top_n": 3,
+            "weights": {"weakness": "1"},
+        }
+    )
+    def test_policy_requires_exact_feature_schema(self):
+        row = self._vector("r5:bad-schema", weakness=Decimal("0.5"))
+
+        with self.assertRaisesRegex(ValueError, "exactly the R4 feature schema"):
+            score_recommendation_features(feature_vectors=(row,))
+
+    def test_negative_policy_weight_is_rejected(self):
+        from django.conf import settings
+
+        weights = dict(settings.RECOMMENDATION_RANKING["weights"])
+        weights["weakness"] = "-0.01"
+        policy = dict(settings.RECOMMENDATION_RANKING)
+        policy["weights"] = weights
+
+        with override_settings(RECOMMENDATION_RANKING=policy):
+            row = self._vector("r5:negative-weight", weakness=Decimal("0.5"))
+            with self.assertRaisesRegex(ValueError, "greater than or equal"):
+                score_recommendation_features(feature_vectors=(row,))
+
+    def test_policy_requires_at_least_one_positive_weight(self):
+        from django.conf import settings
+
+        policy = dict(settings.RECOMMENDATION_RANKING)
+        policy["weights"] = {
+            name: "0"
+            for name in settings.RECOMMENDATION_RANKING["weights"]
+        }
+
+        with override_settings(RECOMMENDATION_RANKING=policy):
+            row = self._vector("r5:zero-policy", weakness=Decimal("0.5"))
+            with self.assertRaisesRegex(ValueError, "At least one"):
+                score_recommendation_features(feature_vectors=(row,))
+
+    def test_candidate_without_any_positive_weight_applicable_is_rejected(self):
+        from django.conf import settings
+
+        policy = dict(settings.RECOMMENDATION_RANKING)
+        weights = {
+            name: "0"
+            for name in settings.RECOMMENDATION_RANKING["weights"]
+        }
+        weights["difficulty_fit"] = "1"
+        policy["weights"] = weights
+
+        with override_settings(RECOMMENDATION_RANKING=policy):
+            row = self._vector(
+                "r5:no-applicable",
+                difficulty_fit=None,
+            )
+            with self.assertRaisesRegex(ValueError, "no applicable feature"):
+                score_recommendation_features(feature_vectors=(row,))
+
+    def test_pipeline_uses_r4_features_and_propagates_candidates(self):
+        candidate = self._candidate("r5:pipeline")
+        feature = self._vector(
+            "r5:pipeline",
+            weakness=Decimal("0.8"),
+        )
+
+        with patch(
+            "recommendation.ranking.build_recommendation_features",
+            return_value=(feature,),
+        ) as build:
+            ranked = rank_recommendations(
+                user=self.user,
+                candidates=(candidate,),
+                as_of=self.as_of,
+                limit=1,
+            )
+
+        build.assert_called_once_with(
+            user=self.user,
+            candidates=(candidate,),
+            as_of=self.as_of,
+        )
+        self.assertEqual(len(ranked), 1)
+        self.assertIsInstance(ranked[0], RankedRecommendation)
+        self.assertEqual(ranked[0].candidate.candidate_key, "r5:pipeline")
+
+    def test_scoring_version_is_propagated_to_ranked_result(self):
+        row = self._vector("r5:version", weakness=Decimal("0.5"))
+
+        ranked = rank_recommendation_features(
+            feature_vectors=(row,),
+            limit=1,
+        )[0]
+
+        self.assertEqual(ranked.scoring_version, "recommendation_ranking_v1")
+
+    def test_scored_and_ranked_outputs_are_immutable(self):
+        row = self._vector("r5:immutable", weakness=Decimal("0.5"))
+        scored = score_recommendation_features(feature_vectors=(row,))[0]
+        ranked = rank_recommendation_features(
+            feature_vectors=(row,),
+            limit=1,
+        )[0]
+
+        with self.assertRaises(Exception):
+            scored.score = Decimal("0")
+        with self.assertRaises(Exception):
+            ranked.rank = 99
