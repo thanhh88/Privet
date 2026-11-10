@@ -1,4 +1,3 @@
-
 """Vocabulary-specific tracking only."""
 
 from tracking.models import (
@@ -14,42 +13,41 @@ def record_vocabulary_review(
     response_time_ms,
 ):
     """
-    Called once for a newly accepted SRS review,
-    inside the SRS transaction.
+    Record one accepted vocabulary SRS review.
 
-    Must not create:
-      - lesson_completed
-      - practice_completed
+    This function is called inside the SRS transaction.
+    Vocabulary tracking is intentionally isolated from
+    lesson/practice completion and SkillMastery updates.
     """
 
     seconds = (response_time_ms or 0) // 1000
 
-    session = StudySession.objects.create(
+    session = StudySession(
         user=user,
         activity_type=StudySession.ActivityType.VOCABULARY,
         status=StudySession.Status.COMPLETED,
-
         lesson=None,
         assessment_session=None,
-
         ended_at=at,
         last_activity_at=at,
         active_seconds=seconds,
     )
+    session.full_clean()
+    session.save()
 
     for event_type in (
         StudyEvent.EventType.VOCABULARY_REVIEW_STARTED,
         StudyEvent.EventType.VOCABULARY_REVIEW_COMPLETED,
     ):
-        StudyEvent.objects.create(
+        event = StudyEvent(
             session=session,
             user=user,
             event_type=event_type,
-
             lesson=None,
             assessment_session=None,
-
             occurred_at=at,
         )
+        event.full_clean()
+        event.save()
 
     return session

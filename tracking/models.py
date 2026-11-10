@@ -221,6 +221,19 @@ class StudySession(models.Model):
                     "assessment session."
                 )
 
+        elif self.activity_type == self.ActivityType.VOCABULARY:
+            if self.lesson_id is not None:
+                errors["lesson"] = (
+                    "Vocabulary study sessions must not "
+                    "reference a lesson."
+                )
+
+            if self.assessment_session_id is not None:
+                errors["assessment_session"] = (
+                    "Vocabulary study sessions must not "
+                    "reference an assessment."
+                )
+
         if self.status in {
             self.Status.ACTIVE,
             self.Status.PAUSED,
@@ -354,6 +367,8 @@ class StudyEvent(models.Model):
                         "lesson_completed",
                         "test_started",
                         "test_completed",
+                        "vocabulary_review_started",
+                        "vocabulary_review_completed",
                     ]
                 ),
                 name="ck_study_event_type",
@@ -382,6 +397,17 @@ class StudyEvent(models.Model):
                             ],
                             lesson__isnull=True,
                             assessment_session__isnull=False,
+                        )
+                    )
+                    |
+                    (
+                        Q(
+                            event_type__in=[
+                                "vocabulary_review_started",
+                                "vocabulary_review_completed",
+                            ],
+                            lesson__isnull=True,
+                            assessment_session__isnull=True,
                         )
                     )
                 ),
@@ -456,6 +482,32 @@ class StudyEvent(models.Model):
                 errors["assessment_session"] = (
                     "Test events require an "
                     "assessment session."
+                )
+
+        elif self.event_type in {
+            self.EventType.VOCABULARY_REVIEW_STARTED,
+            self.EventType.VOCABULARY_REVIEW_COMPLETED,
+        }:
+            if self.lesson_id is not None:
+                errors["lesson"] = (
+                    "Vocabulary review events must not "
+                    "reference a lesson."
+                )
+
+            if self.assessment_session_id is not None:
+                errors["assessment_session"] = (
+                    "Vocabulary review events must not "
+                    "reference an assessment."
+                )
+
+            if (
+                self.session_id is not None
+                and self.session.activity_type
+                != StudySession.ActivityType.VOCABULARY
+            ):
+                errors["session"] = (
+                    "Vocabulary review events require a "
+                    "vocabulary StudySession."
                 )
 
         if errors:
