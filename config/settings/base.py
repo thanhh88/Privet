@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     "learning_engine",
+    "recommendation.apps.RecommendationConfig",
     "vocabulary.apps.VocabularyConfig",
 
 # Privet apps
