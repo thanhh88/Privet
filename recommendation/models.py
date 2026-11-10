@@ -139,3 +139,107 @@ class RecommendationDecision(models.Model):
             f"RecommendationDecision(batch={self.batch_id}, "
             f"rank={self.rank}, candidate={self.candidate_key})"
         )
+
+
+class RecommendationOutcomeEvent(models.Model):
+    """Append-only learner response/outcome event for one recommendation.
+
+    R8 keeps outcome tracking event-sourced.  The R7 decision remains the
+    immutable record of what was shown; these rows record what happened next.
+    A semantic lifecycle event is written at most once per decision.
+    """
+
+    class EventType(models.TextChoices):
+        ACCEPTED = "accepted", "Accepted"
+        ACTIVITY_STARTED = "activity_started", "Activity started"
+        ACTIVITY_COMPLETED = "activity_completed", "Activity completed"
+        ACTIVITY_ABANDONED = "activity_abandoned", "Activity abandoned"
+        DISMISSED = "dismissed", "Dismissed"
+
+    outcome_event_id = models.BigAutoField(primary_key=True)
+
+    decision = models.ForeignKey(
+        RecommendationDecision,
+        on_delete=models.CASCADE,
+        related_name="outcome_events",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="recommendation_outcome_events",
+    )
+
+    # Client supplied idempotency key for this lifecycle transition.
+    request_id = models.CharField(max_length=128)
+    event_type = models.CharField(max_length=32, choices=EventType.choices)
+    outcome_version = models.CharField(max_length=64)
+    occurred_at = models.DateTimeField()
+
+    # Snapshot of the concrete activity linked to this recommendation event.
+    activity_snapshot = models.JSONField(default=dict)
+
+    # Activity-specific result at completion (assessment accuracy, lesson
+    # completion, vocabulary SRS review summary).  Empty for non-completion
+    # events.
+    result_snapshot = models.JSONField(default=dict)
+
+    # SkillMastery state for the R4 skill scope at this event.  Vocabulary has
+    # an empty skill scope by design and therefore stores an empty list.
+    mastery_snapshot = models.JSONField(default=list)
+
+    # Per-skill delta between ACTIVITY_STARTED and ACTIVITY_COMPLETED mastery
+    # snapshots.  Empty for all other lifecycle events.
+    learning_gain_snapshot = models.JSONField(default=list)
+
+    # Canonical hash of the immutable event payload, used for audit/debugging.
+    payload_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "recommendation_outcome_event"
+        ordering = ["decision_id", "occurred_at", "outcome_event_id"]
+        indexes = [
+            models.Index(
+                fields=["user", "-occurred_at"],
+                name="idx_rec_outcome_user_recent",
+            ),
+            models.Index(
+                fields=["decision", "occurred_at"],
+                name="idx_rec_outcome_decision_time",
+            ),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["decision", "request_id"],
+                name="uq_rec_outcome_decision_request",
+            ),
+            models.UniqueConstraint(
+                fields=["decision", "event_type"],
+                name="uq_rec_outcome_decision_event",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    event_type__in=[
+                        "accepted",
+                        "activity_started",
+                        "activity_completed",
+                        "activity_abandoned",
+                        "dismissed",
+                    ]
+                ),
+                name="ck_rec_outcome_event_type",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError(
+                "RecommendationOutcomeEvent rows are immutable after creation."
+            )
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return (
+            f"RecommendationOutcomeEvent(decision={self.decision_id}, "
+            f"event={self.event_type})"
+        )

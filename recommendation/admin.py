@@ -1,6 +1,10 @@
 from django.contrib import admin
 
-from recommendation.models import RecommendationBatch, RecommendationDecision
+from recommendation.models import (
+    RecommendationBatch,
+    RecommendationDecision,
+    RecommendationOutcomeEvent,
+)
 
 
 class RecommendationDecisionInline(admin.TabularInline):
@@ -69,6 +73,23 @@ class RecommendationBatchAdmin(admin.ModelAdmin):
         return False
 
 
+class RecommendationOutcomeEventInline(admin.TabularInline):
+    model = RecommendationOutcomeEvent
+    extra = 0
+    can_delete = False
+    fields = (
+        "event_type",
+        "outcome_version",
+        "occurred_at",
+        "request_id",
+        "created_at",
+    )
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(RecommendationDecision)
 class RecommendationDecisionAdmin(admin.ModelAdmin):
     list_display = (
@@ -87,6 +108,7 @@ class RecommendationDecisionAdmin(admin.ModelAdmin):
         "batch__user__email",
     )
     ordering = ("-created_at", "batch_id", "rank")
+    inlines = (RecommendationOutcomeEventInline,)
     readonly_fields = (
         "decision_id",
         "batch",
@@ -99,6 +121,48 @@ class RecommendationDecisionAdmin(admin.ModelAdmin):
         "feature_snapshot",
         "score_components",
         "explanation_reasons",
+        "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(RecommendationOutcomeEvent)
+class RecommendationOutcomeEventAdmin(admin.ModelAdmin):
+    list_display = (
+        "outcome_event_id",
+        "decision",
+        "user",
+        "event_type",
+        "outcome_version",
+        "occurred_at",
+        "created_at",
+    )
+    list_filter = ("event_type", "outcome_version")
+    search_fields = (
+        "request_id",
+        "decision__candidate_key",
+        "decision__batch__request_id",
+        "user__email",
+    )
+    ordering = ("-occurred_at", "-outcome_event_id")
+    readonly_fields = (
+        "outcome_event_id",
+        "decision",
+        "user",
+        "request_id",
+        "event_type",
+        "outcome_version",
+        "occurred_at",
+        "activity_snapshot",
+        "result_snapshot",
+        "mastery_snapshot",
+        "learning_gain_snapshot",
+        "payload_hash",
         "created_at",
     )
 
