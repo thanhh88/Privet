@@ -35,9 +35,16 @@ from recommendation.features import (
 from recommendation.ranking import (
     RankedRecommendation,
     RecommendationScoreComponent,
+    ScoredRecommendation,
     rank_recommendation_features,
     rank_recommendations,
     score_recommendation_features,
+)
+from recommendation.explanations import (
+    ExplainedRecommendation,
+    RecommendationExplanationReason,
+    explain_ranked_recommendations,
+    explain_recommendations,
 )
 from vocabulary.models import (
     VocabularyItem,
@@ -2192,3 +2199,495 @@ class RecommendationRankingTests(TestCase):
             scored.score = Decimal("0")
         with self.assertRaises(Exception):
             ranked.rank = 99
+
+
+class RecommendationExplanationTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            email="r6-explanation@example.com",
+            password="password123",
+        )
+        self.as_of = timezone.now()
+
+    def _candidate(
+        self,
+        key="r6:candidate",
+        candidate_type=RecommendationCandidateType.START_LESSON,
+        *,
+        lesson_title=None,
+        assessment_mode=None,
+        vocabulary_due_count=0,
+    ):
+        return RecommendationCandidate(
+            candidate_key=key,
+            candidate_type=candidate_type,
+            lesson_title=lesson_title,
+            assessment_mode=assessment_mode,
+            vocabulary_due_count=vocabulary_due_count,
+        )
+
+    def _ranked(
+        self,
+        *,
+        rank=1,
+        key="r6:candidate",
+        candidate_type=RecommendationCandidateType.START_LESSON,
+        lesson_title=None,
+        assessment_mode=None,
+        vocabulary_due_count=0,
+        components=None,
+        score=Decimal("0.50000"),
+    ):
+        candidate = self._candidate(
+            key,
+            candidate_type,
+            lesson_title=lesson_title,
+            assessment_mode=assessment_mode,
+            vocabulary_due_count=vocabulary_due_count,
+        )
+        vector = RecommendationFeatureVector(
+            candidate=candidate,
+            feature_version=FEATURE_VERSION,
+            skill_scope_ids=(),
+            weakness=None,
+            recurring_errors=None,
+            review_urgency=None,
+            uncertainty=None,
+            recent_learning=None,
+            prerequisite_readiness=None,
+            continuity=Decimal("0"),
+            novelty=Decimal("0"),
+            difficulty_fit=None,
+        )
+        scored = ScoredRecommendation(
+            feature_vector=vector,
+            scoring_version="recommendation_ranking_v1",
+            score=score,
+            configured_weight_sum=Decimal("1.00000"),
+            components=tuple(components or ()),
+        )
+        return RankedRecommendation(rank=rank, scored=scored)
+
+    def _component(
+        self,
+        feature_name,
+        *,
+        value="0.8",
+        contribution="0.2",
+        configured_weight="0.25",
+        effective_weight="0.25",
+    ):
+        return RecommendationScoreComponent(
+            feature_name=feature_name,
+            value=Decimal(value),
+            configured_weight=Decimal(configured_weight),
+            effective_weight=Decimal(effective_weight),
+            contribution=Decimal(contribution),
+        )
+
+    def test_start_lesson_headline_uses_lesson_title(self):
+        row = self._ranked(lesson_title="Родительный падеж")
+
+        explained = explain_ranked_recommendations(
+            ranked_recommendations=(row,)
+        )[0]
+
+        self.assertEqual(
+            explained.headline,
+            "Học bài: Родительный падеж",
+        )
+
+    def test_continue_lesson_headline_uses_lesson_title(self):
+        row = self._ranked(
+            candidate_type=RecommendationCandidateType.CONTINUE_LESSON,
+            lesson_title="Глаголы движения",
+        )
+
+        explained = explain_ranked_recommendations(
+            ranked_recommendations=(row,)
+        )[0]
+
+        self.assertEqual(
+            explained.headline,
+            "Tiếp tục bài học: Глаголы движения",
+        )
+
+    def test_diagnostic_resume_has_specific_headline(self):
+        row = self._ranked(
+            candidate_type=RecommendationCandidateType.RESUME_ASSESSMENT,
+            assessment_mode=AssessmentSession.Mode.DIAGNOSTIC,
+        )
+
+        explained = explain_ranked_recommendations(
+            ranked_recommendations=(row,)
+        )[0]
+
+        self.assertEqual(
+            explained.headline,
+            "Tiếp tục bài đánh giá đầu vào",
+        )
+
+    def test_adaptive_start_has_specific_headline(self):
+        row = self._ranked(
+            candidate_type=(
+                RecommendationCandidateType.START_ADAPTIVE_ASSESSMENT
+            ),
+        )
+
+        explained = explain_ranked_recommendations(
+            ranked_recommendations=(row,)
+        )[0]
+
+        self.assertEqual(
+            explained.headline,
+            "Bắt đầu bài đánh giá thích ứng",
+        )
+
+    def test_vocabulary_headline_uses_due_count(self):
+        row = self._ranked(
+            candidate_type=RecommendationCandidateType.VOCABULARY_REVIEW,
+            vocabulary_due_count=12,
+        )
+
+        explained = explain_ranked_recommendations(
+            ranked_recommendations=(row,)
+        )[0]
+
+        self.assertEqual(explained.headline, "Ôn 12 từ vựng đến hạn")
+
+    def test_reasons_are_selected_by_r5_contribution(self):
+        row = self._ranked(
+            components=(
+                self._component(
+                    "weakness",
+                    contribution="0.10",
+                ),
+                self._component(
+                    "review_urgency",
+                    contribution="0.30",
+                ),
+                self._component(
+                    "recurring_errors",
+                    contribution="0.20",
+                ),
+            )
+        )
+
+        explained = explain_ranked_recommendations(
+            ranked_recommendations=(row,)
+        )[0]
+
+        self.assertEqual(
+            [reason.feature_name for reason in explained.reasons],
+            ["review_urgency", "recurring_errors", "weakness"],
+        )
+
+    def test_reason_preserves_feature_value_and_contribution(self):
+        component = self._component(
+            "weakness",
+            value="0.75",
+            contribution="0.18750",
+        )
+        row = self._ranked(components=(component,))
+
+        reason = explain_ranked_recommendations(
+            ranked_recommendations=(row,)
+        )[0].reasons[0]
+
+        self.assertEqual(reason.feature_name, "weakness")
+        self.assertEqual(reason.value, Decimal("0.75"))
+        self.assertEqual(reason.contribution, Decimal("0.18750"))
+        self.assertEqual(reason.code, "target_skill_needs_strengthening")
+
+    def test_zero_contribution_component_is_not_presented_as_reason(self):
+        row = self._ranked(
+            components=(
+                self._component(
+                    "weakness",
+                    value="0",
+                    contribution="0",
+                ),
+            ),
+            score=Decimal("0"),
+        )
+
+        explained = explain_ranked_recommendations(
+            ranked_recommendations=(row,)
+        )[0]
+
+        self.assertEqual(len(explained.reasons), 1)
+        self.assertEqual(explained.reasons[0].code, "available_now")
+        self.assertIsNone(explained.reasons[0].feature_name)
+
+    def test_default_explanation_limit_is_three_reasons(self):
+        row = self._ranked(
+            components=(
+                self._component("weakness", contribution="0.30"),
+                self._component("review_urgency", contribution="0.25"),
+                self._component("uncertainty", contribution="0.20"),
+                self._component("novelty", contribution="0.10"),
+            )
+        )
+
+        explained = explain_ranked_recommendations(
+            ranked_recommendations=(row,)
+        )[0]
+
+        self.assertEqual(len(explained.reasons), 3)
+
+    def test_explicit_max_reasons_is_respected(self):
+        row = self._ranked(
+            components=(
+                self._component("weakness", contribution="0.30"),
+                self._component("review_urgency", contribution="0.25"),
+            )
+        )
+
+        explained = explain_ranked_recommendations(
+            ranked_recommendations=(row,),
+            max_reasons=1,
+        )[0]
+
+        self.assertEqual(len(explained.reasons), 1)
+        self.assertEqual(explained.reasons[0].feature_name, "weakness")
+
+    def test_invalid_max_reasons_is_rejected(self):
+        row = self._ranked()
+
+        for value in (0, -1, True, "2"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "positive integer"):
+                    explain_ranked_recommendations(
+                        ranked_recommendations=(row,),
+                        max_reasons=value,
+                    )
+
+    def test_vocabulary_review_reason_uses_due_count(self):
+        row = self._ranked(
+            candidate_type=RecommendationCandidateType.VOCABULARY_REVIEW,
+            vocabulary_due_count=7,
+            components=(
+                self._component(
+                    "review_urgency",
+                    contribution="0.4",
+                ),
+            ),
+        )
+
+        reason = explain_ranked_recommendations(
+            ranked_recommendations=(row,)
+        )[0].reasons[0]
+
+        self.assertIn("7 từ vựng", reason.message)
+        self.assertIn("SRS", reason.message)
+
+    def test_continue_reason_is_specific_to_unfinished_lesson(self):
+        row = self._ranked(
+            candidate_type=RecommendationCandidateType.CONTINUE_LESSON,
+            components=(
+                self._component(
+                    "continuity",
+                    contribution="0.4",
+                ),
+            ),
+        )
+
+        reason = explain_ranked_recommendations(
+            ranked_recommendations=(row,)
+        )[0].reasons[0]
+
+        self.assertEqual(reason.message, "Bạn đang học dở bài này.")
+
+    def test_prerequisite_reason_does_not_claim_specific_mastery_value(self):
+        row = self._ranked(
+            components=(
+                self._component(
+                    "prerequisite_readiness",
+                    value="0.70",
+                    contribution="0.2",
+                ),
+            )
+        )
+
+        reason = explain_ranked_recommendations(
+            ranked_recommendations=(row,)
+        )[0].reasons[0]
+
+        self.assertEqual(
+            reason.message,
+            "Bài học hiện sẵn sàng về các điều kiện tiên quyết.",
+        )
+        self.assertNotIn("70", reason.message)
+
+    def test_unknown_r5_component_is_rejected_explicitly(self):
+        row = self._ranked(
+            components=(
+                self._component(
+                    "unknown_feature",
+                    contribution="0.2",
+                ),
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "Unsupported R5 score component"):
+            explain_ranked_recommendations(
+                ranked_recommendations=(row,)
+            )
+
+    def test_exact_contribution_tie_has_deterministic_feature_order(self):
+        row = self._ranked(
+            components=(
+                self._component("review_urgency", contribution="0.2"),
+                self._component("weakness", contribution="0.2"),
+            )
+        )
+
+        explained = explain_ranked_recommendations(
+            ranked_recommendations=(row,)
+        )[0]
+
+        self.assertEqual(
+            [reason.feature_name for reason in explained.reasons],
+            ["weakness", "review_urgency"],
+        )
+
+    def test_input_rows_are_returned_in_rank_order_without_reranking(self):
+        second = self._ranked(rank=2, key="r6:second")
+        first = self._ranked(rank=1, key="r6:first")
+
+        explained = explain_ranked_recommendations(
+            ranked_recommendations=(second, first)
+        )
+
+        self.assertEqual(
+            [row.candidate.candidate_key for row in explained],
+            ["r6:first", "r6:second"],
+        )
+        self.assertEqual([row.rank for row in explained], [1, 2])
+
+    def test_duplicate_candidate_keys_are_rejected(self):
+        first = self._ranked(rank=1, key="r6:duplicate")
+        second = self._ranked(rank=2, key="r6:duplicate")
+
+        with self.assertRaisesRegex(ValueError, "candidate keys must be unique"):
+            explain_ranked_recommendations(
+                ranked_recommendations=(first, second)
+            )
+
+    def test_duplicate_ranks_are_rejected(self):
+        first = self._ranked(rank=1, key="r6:first")
+        second = self._ranked(rank=1, key="r6:second")
+
+        with self.assertRaisesRegex(ValueError, "ranks must be unique"):
+            explain_ranked_recommendations(
+                ranked_recommendations=(first, second)
+            )
+
+    def test_non_ranked_input_is_rejected(self):
+        with self.assertRaises(TypeError):
+            explain_ranked_recommendations(
+                ranked_recommendations=(object(),)
+            )
+
+    def test_explanation_version_is_propagated(self):
+        explained = explain_ranked_recommendations(
+            ranked_recommendations=(self._ranked(),)
+        )[0]
+
+        self.assertEqual(
+            explained.explanation_version,
+            "recommendation_explanation_v1",
+        )
+
+    @override_settings(
+        RECOMMENDATION_EXPLANATION={
+            "version": "",
+            "default_max_reasons": 3,
+        }
+    )
+    def test_policy_requires_non_empty_version(self):
+        with self.assertRaisesRegex(ValueError, "non-empty string"):
+            explain_ranked_recommendations(
+                ranked_recommendations=(self._ranked(),)
+            )
+
+    @override_settings(
+        RECOMMENDATION_EXPLANATION={
+            "version": "r6-test",
+            "default_max_reasons": 0,
+        }
+    )
+    def test_policy_requires_positive_default_max_reasons(self):
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            explain_ranked_recommendations(
+                ranked_recommendations=(self._ranked(),)
+            )
+
+    def test_explained_output_does_not_change_r5_score_or_rank(self):
+        ranked = self._ranked(
+            rank=2,
+            score=Decimal("0.81234"),
+            components=(
+                self._component("weakness", contribution="0.2"),
+            ),
+        )
+
+        explained = explain_ranked_recommendations(
+            ranked_recommendations=(ranked,)
+        )[0]
+
+        self.assertEqual(explained.rank, 2)
+        self.assertEqual(explained.score, Decimal("0.81234"))
+        self.assertEqual(
+            explained.scoring_version,
+            "recommendation_ranking_v1",
+        )
+        self.assertIs(explained.ranked, ranked)
+
+    def test_outputs_are_immutable(self):
+        explained = explain_ranked_recommendations(
+            ranked_recommendations=(self._ranked(),)
+        )[0]
+        reason = explained.reasons[0]
+
+        self.assertIsInstance(explained, ExplainedRecommendation)
+        self.assertIsInstance(reason, RecommendationExplanationReason)
+        with self.assertRaises(Exception):
+            explained.headline = "changed"
+        with self.assertRaises(Exception):
+            reason.message = "changed"
+
+    def test_pipeline_calls_r5_and_explains_returned_rows(self):
+        ranked = self._ranked(
+            components=(
+                self._component("weakness", contribution="0.2"),
+            )
+        )
+
+        with patch(
+            "recommendation.explanations.rank_recommendations",
+            return_value=(ranked,),
+        ) as rank:
+            explained = explain_recommendations(
+                user=self.user,
+                candidates=(ranked.candidate,),
+                as_of=self.as_of,
+                limit=1,
+                max_reasons=1,
+            )
+
+        rank.assert_called_once_with(
+            user=self.user,
+            candidates=(ranked.candidate,),
+            as_of=self.as_of,
+            limit=1,
+        )
+        self.assertEqual(len(explained), 1)
+        self.assertEqual(explained[0].candidate.candidate_key, "r6:candidate")
+        self.assertEqual(len(explained[0].reasons), 1)
+
+    def test_empty_ranking_returns_empty_explanations(self):
+        self.assertEqual(
+            explain_ranked_recommendations(ranked_recommendations=()),
+            (),
+        )
