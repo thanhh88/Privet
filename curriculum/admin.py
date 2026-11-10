@@ -5,6 +5,7 @@ from .models import (
     LessonProgress,
     LessonSkill,
     Skill,
+    SkillPrerequisite,
     Topic,
 )
 
@@ -32,6 +33,22 @@ class TopicAdmin(admin.ModelAdmin):
     ordering = (
         "display_order",
         "topic_id",
+    )
+
+
+class SkillPrerequisiteInline(admin.TabularInline):
+    model = SkillPrerequisite
+    fk_name = "skill"
+    extra = 1
+
+    fields = (
+        "prerequisite_skill",
+        "required_mastery",
+        "is_active",
+    )
+
+    autocomplete_fields = (
+        "prerequisite_skill",
     )
 
 
@@ -65,6 +82,44 @@ class SkillAdmin(admin.ModelAdmin):
         "topic",
         "display_order",
         "skill_id",
+    )
+
+    inlines = (
+        SkillPrerequisiteInline,
+    )
+
+
+@admin.register(SkillPrerequisite)
+class SkillPrerequisiteAdmin(admin.ModelAdmin):
+    list_display = (
+        "skill_prerequisite_id",
+        "skill",
+        "prerequisite_skill",
+        "required_mastery",
+        "is_active",
+    )
+
+    list_filter = (
+        "is_active",
+        "skill__cefr_level",
+        "prerequisite_skill__cefr_level",
+    )
+
+    search_fields = (
+        "skill__skill_code",
+        "skill__skill_name",
+        "prerequisite_skill__skill_code",
+        "prerequisite_skill__skill_name",
+    )
+
+    autocomplete_fields = (
+        "skill",
+        "prerequisite_skill",
+    )
+
+    ordering = (
+        "skill_id",
+        "prerequisite_skill_id",
     )
 
 

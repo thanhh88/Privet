@@ -1,7 +1,15 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
-from django.core.validators import RegexValidator
+from django.core.validators import (
+    MaxValueValidator,
+    MinValueValidator,
+    RegexValidator,
+)
+from decimal import Decimal
+
+DEFAULT_PREREQUISITE_MASTERY = Decimal("0.7000")
 
 SKILL_CODE_VALIDATOR = RegexValidator(
     regex=r"^[A-Z0-9][A-Z0-9._-]*$",
@@ -122,6 +130,135 @@ class Skill(models.Model):
 
     def __str__(self):
         return f"{self.skill_name} ({self.cefr_level})"
+
+
+class SkillPrerequisite(models.Model):
+    skill_prerequisite_id = models.BigAutoField(
+        primary_key=True,
+    )
+
+    # Directed edge: skill -> prerequisite_skill.
+    skill = models.ForeignKey(
+        Skill,
+        on_delete=models.PROTECT,
+        related_name="prerequisite_links",
+    )
+
+    prerequisite_skill = models.ForeignKey(
+        Skill,
+        on_delete=models.PROTECT,
+        related_name="dependent_links",
+    )
+
+    required_mastery = models.DecimalField(
+        max_digits=5,
+        decimal_places=4,
+        default=DEFAULT_PREREQUISITE_MASTERY,
+        validators=[
+            MinValueValidator(Decimal("0")),
+            MaxValueValidator(Decimal("1")),
+        ],
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    class Meta:
+        db_table = "skill_prerequisite"
+        ordering = (
+            "skill_id",
+            "prerequisite_skill_id",
+        )
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=(
+                    "skill",
+                    "prerequisite_skill",
+                ),
+                name="uq_skill_prerequisite_pair",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(
+                    skill=models.F("prerequisite_skill"),
+                ),
+                name="ck_skill_prerequisite_not_self",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(required_mastery__gte=0)
+                    & models.Q(required_mastery__lte=1)
+                ),
+                name="ck_skill_prerequisite_mastery",
+            ),
+        ]
+
+        indexes = [
+            models.Index(
+                fields=(
+                    "skill",
+                    "is_active",
+                ),
+                name="idx_skill_prereq_skill",
+            ),
+            models.Index(
+                fields=(
+                    "prerequisite_skill",
+                    "is_active",
+                ),
+                name="idx_skill_prereq_req",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        if (
+            self.skill_id is not None
+            and self.prerequisite_skill_id is not None
+            and self.skill_id == self.prerequisite_skill_id
+        ):
+            raise ValidationError(
+                {
+                    "prerequisite_skill": (
+                        "A skill cannot be its own prerequisite."
+                    )
+                }
+            )
+
+        if (
+            self.is_active
+            and self.skill_id is not None
+            and self.prerequisite_skill_id is not None
+        ):
+            from curriculum.prerequisites import (
+                would_create_prerequisite_cycle,
+            )
+
+            if would_create_prerequisite_cycle(
+                skill_id=self.skill_id,
+                prerequisite_skill_id=(
+                    self.prerequisite_skill_id
+                ),
+                exclude_edge_id=self.pk,
+            ):
+                raise ValidationError(
+                    {
+                        "prerequisite_skill": (
+                            "This prerequisite would create "
+                            "a cycle in the skill graph."
+                        )
+                    }
+                )
+
+    def __str__(self):
+        return (
+            f"{self.skill.skill_code} requires "
+            f"{self.prerequisite_skill.skill_code} "
+            f"at {self.required_mastery}"
+        )
+
 
 class Lesson(models.Model):
     lesson_id = models.BigAutoField(
