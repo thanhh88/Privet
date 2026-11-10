@@ -1,5 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -24,6 +26,11 @@ from recommendation.eligibility import (
     RecommendationEligibilityReason,
     evaluate_recommendation_eligibility,
     filter_eligible_recommendation_candidates,
+)
+from recommendation.features import (
+    FEATURE_VERSION,
+    RecommendationFeatureVector,
+    build_recommendation_features,
 )
 from vocabulary.models import (
     VocabularyItem,
@@ -1187,6 +1194,509 @@ class RecommendationEligibilityTests(TestCase):
         }
 
         evaluate_recommendation_eligibility(
+            user=self.user,
+            as_of=self.as_of,
+        )
+
+        after = {
+            "lessons": Lesson.objects.count(),
+            "progress": LessonProgress.objects.count(),
+            "sessions": AssessmentSession.objects.count(),
+            "masteries": SkillMastery.objects.count(),
+            "vocab_states": VocabularySRSState.objects.count(),
+        }
+        self.assertEqual(after, before)
+
+
+class RecommendationFeatureCalculationTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            email="r4-features@example.com",
+            password="password123",
+            prior_russian_experience=False,
+        )
+        self.topic = Topic.objects.create(
+            topic_name="R4 features",
+            category="grammar",
+        )
+        self.as_of = timezone.now()
+
+    def _skill(
+        self,
+        code,
+        order,
+        *,
+        cefr_level=Skill.CefrLevel.A1,
+        is_active=True,
+    ):
+        return Skill.objects.create(
+            skill_code=code,
+            topic=self.topic,
+            skill_name=f"{code} skill",
+            cefr_level=cefr_level,
+            display_order=order,
+            is_active=is_active,
+        )
+
+    def _lesson(self, title, order, *, skills):
+        lesson = Lesson.objects.create(
+            title=title,
+            lesson_type="grammar",
+            content={
+                "objective_vi": "R4",
+                "theory": [],
+                "examples": [],
+                "practice": [],
+            },
+            display_order=order,
+            is_active=True,
+        )
+        for skill in skills:
+            LessonSkill.objects.create(lesson=lesson, skill=skill)
+        return lesson
+
+    def _complete_lesson(self, lesson):
+        return LessonProgress.objects.create(
+            user=self.user,
+            lesson=lesson,
+            status=LessonProgress.Status.COMPLETED,
+            completion_ratio=Decimal("1.0000"),
+            completed_at=self.as_of,
+            last_accessed_at=self.as_of,
+        )
+
+    def _in_progress_lesson(self, lesson, *, ratio="0.5000"):
+        return LessonProgress.objects.create(
+            user=self.user,
+            lesson=lesson,
+            status=LessonProgress.Status.IN_PROGRESS,
+            completion_ratio=Decimal(ratio),
+            last_accessed_at=self.as_of,
+        )
+
+    def _make_adaptive_route(self, *, skills=None):
+        skills = list(skills or [self._skill("R4-BASE", 1)])
+        lesson = self._lesson(
+            "R4 completed beginner lesson",
+            1,
+            skills=skills,
+        )
+        self._complete_lesson(lesson)
+        return lesson
+
+    def _mastery(self, skill, score, *, observation_count=3):
+        return SkillMastery.objects.create(
+            user=self.user,
+            skill=skill,
+            mastery_score=Decimal(str(score)),
+            observation_count=observation_count,
+            correct_attempts=0,
+            recent_accuracy=Decimal(str(score)),
+            historical_accuracy=Decimal(str(score)),
+        )
+
+    def _due_vocabulary(self, *, source_id="r4-vocab", due_at=None):
+        vocabulary_topic = VocabularyTopic.objects.create(
+            code=f"{source_id}-topic",
+            title_vi="R4 từ vựng",
+            title_ru="R4 словарь",
+            cefr_level="A1",
+            is_active=True,
+        )
+        item = VocabularyItem.objects.create(
+            source_id=source_id,
+            lemma="слово",
+            meaning_vi="từ",
+            cefr_level="A1",
+            is_active=True,
+        )
+        VocabularyItemTopic.objects.create(
+            item=item,
+            topic=vocabulary_topic,
+        )
+        return VocabularySRSState.objects.create(
+            user=self.user,
+            item=item,
+            next_review_at=(
+                due_at
+                if due_at is not None
+                else self.as_of - timedelta(days=1)
+            ),
+        )
+
+    def _candidate_by_key(self, key):
+        candidates = generate_recommendation_candidates(
+            user=self.user,
+            as_of=self.as_of,
+        )
+        return {
+            candidate.candidate_key: candidate
+            for candidate in candidates
+        }[key]
+
+    def _feature_by_key(self, key, *, candidates=None):
+        features = build_recommendation_features(
+            user=self.user,
+            candidates=candidates,
+            as_of=self.as_of,
+        )
+        return {
+            row.candidate.candidate_key: row
+            for row in features
+        }[key]
+
+    def test_unsaved_user_is_rejected(self):
+        user = get_user_model()(email="r4-unsaved@example.com")
+        with self.assertRaises(ValueError):
+            build_recommendation_features(user=user, as_of=self.as_of)
+
+    def test_naive_as_of_is_rejected(self):
+        with self.assertRaises(ValueError):
+            build_recommendation_features(
+                user=self.user,
+                as_of=self.as_of.replace(tzinfo=None),
+            )
+
+    def test_non_candidate_input_is_rejected(self):
+        with self.assertRaises(TypeError):
+            build_recommendation_features(
+                user=self.user,
+                candidates=(object(),),
+                as_of=self.as_of,
+            )
+
+    def test_duplicate_candidate_keys_are_rejected(self):
+        candidate = RecommendationCandidate(
+            candidate_key="duplicate-r4",
+            candidate_type=RecommendationCandidateType.START_LESSON,
+        )
+        with self.assertRaises(ValueError):
+            build_recommendation_features(
+                user=self.user,
+                candidates=(candidate, candidate),
+                as_of=self.as_of,
+            )
+
+    def test_explicit_ineligible_candidate_is_rejected(self):
+        candidate = RecommendationCandidate(
+            candidate_key="assessment:start:adaptive",
+            candidate_type=(
+                RecommendationCandidateType.START_ADAPTIVE_ASSESSMENT
+            ),
+            assessment_mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        with self.assertRaisesRegex(ValueError, "R3-eligible"):
+            build_recommendation_features(
+                user=self.user,
+                candidates=(candidate,),
+                as_of=self.as_of,
+            )
+
+    def test_default_pipeline_calculates_only_r3_eligible_candidates(self):
+        first_skill = self._skill("R4-BEG-1", 1)
+        second_skill = self._skill("R4-BEG-2", 2)
+        first = self._lesson("R4 beginner first", 1, skills=[first_skill])
+        second = self._lesson("R4 beginner second", 2, skills=[second_skill])
+        self._due_vocabulary()
+
+        features = build_recommendation_features(
+            user=self.user,
+            as_of=self.as_of,
+        )
+        keys = {row.candidate.candidate_key for row in features}
+
+        self.assertEqual(
+            keys,
+            {f"lesson:start:{first.pk}", "vocabulary:review"},
+        )
+        self.assertNotIn(f"lesson:start:{second.pk}", keys)
+        self.assertNotIn("assessment:start:adaptive", keys)
+
+    def test_feature_vector_is_immutable_and_versioned(self):
+        skill = self._skill("R4-VERSION", 1)
+        lesson = self._lesson("R4 version lesson", 1, skills=[skill])
+
+        row = self._feature_by_key(f"lesson:start:{lesson.pk}")
+
+        self.assertIsInstance(row, RecommendationFeatureVector)
+        self.assertEqual(row.feature_version, FEATURE_VERSION)
+        with self.assertRaises(Exception):
+            row.continuity = Decimal("0.50000")
+
+    def test_beginner_start_lesson_has_novelty_without_prereq_feature(self):
+        skill = self._skill("R4-BEG-N", 1)
+        lesson = self._lesson("R4 beginner novelty", 1, skills=[skill])
+
+        row = self._feature_by_key(f"lesson:start:{lesson.pk}")
+
+        self.assertEqual(row.skill_scope_ids, (skill.pk,))
+        self.assertEqual(row.continuity, Decimal("0.00000"))
+        self.assertEqual(row.novelty, Decimal("1.00000"))
+        self.assertIsNone(row.prerequisite_readiness)
+        self.assertIsNone(row.difficulty_fit)
+
+    def test_continue_lesson_has_continuity_and_no_novelty(self):
+        skill = self._skill("R4-CONT", 1)
+        lesson = self._lesson("R4 continue", 1, skills=[skill])
+        self._in_progress_lesson(lesson)
+
+        row = self._feature_by_key(f"lesson:continue:{lesson.pk}")
+
+        self.assertEqual(row.continuity, Decimal("1.00000"))
+        self.assertEqual(row.novelty, Decimal("0.00000"))
+        self.assertIsNone(row.prerequisite_readiness)
+
+    def test_resume_assessment_has_continuity_and_no_novelty(self):
+        session = AssessmentSession.objects.create(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+            status=AssessmentSession.Status.ACTIVE,
+        )
+
+        row = self._feature_by_key(f"assessment:resume:{session.pk}")
+
+        self.assertEqual(row.continuity, Decimal("1.00000"))
+        self.assertEqual(row.novelty, Decimal("0.00000"))
+        self.assertEqual(row.skill_scope_ids, ())
+        self.assertIsNone(row.weakness)
+        self.assertIsNone(row.review_urgency)
+
+    def test_skill_need_features_are_bounded_for_real_cold_start_state(self):
+        skill = self._skill("R4-BOUNDS", 1)
+        lesson = self._lesson("R4 bounds", 1, skills=[skill])
+
+        row = self._feature_by_key(f"lesson:start:{lesson.pk}")
+
+        for value in (
+            row.weakness,
+            row.recurring_errors,
+            row.review_urgency,
+            row.uncertainty,
+            row.recent_learning,
+        ):
+            self.assertIsNotNone(value)
+            self.assertGreaterEqual(value, Decimal("0"))
+            self.assertLessEqual(value, Decimal("1"))
+
+    def test_multi_skill_need_features_use_peak_aggregation(self):
+        self._make_adaptive_route()
+        skill_a = self._skill(
+            "R4-PEAK-A",
+            20,
+            cefr_level=Skill.CefrLevel.A2,
+        )
+        skill_b = self._skill(
+            "R4-PEAK-B",
+            21,
+            cefr_level=Skill.CefrLevel.A2,
+        )
+        lesson = self._lesson(
+            "R4 peak lesson",
+            20,
+            skills=[skill_a, skill_b],
+        )
+        candidate = self._candidate_by_key(f"lesson:start:{lesson.pk}")
+
+        values = {
+            skill_a.pk: SimpleNamespace(
+                weakness=Decimal("0.20000"),
+                recurring_errors=Decimal("0.60000"),
+                review_due=Decimal("0.30000"),
+                uncertainty=Decimal("0.40000"),
+                recent_learning=Decimal("0.00000"),
+            ),
+            skill_b.pk: SimpleNamespace(
+                weakness=Decimal("0.80000"),
+                recurring_errors=Decimal("0.10000"),
+                review_due=Decimal("0.70000"),
+                uncertainty=Decimal("0.90000"),
+                recent_learning=Decimal("1.00000"),
+            ),
+        }
+
+        with patch(
+            "recommendation.features.build_user_skill_priority",
+            side_effect=lambda **kwargs: values[kwargs["skill_id"]],
+        ):
+            row = self._feature_by_key(
+                candidate.candidate_key,
+                candidates=(candidate,),
+            )
+
+        self.assertEqual(row.weakness, Decimal("0.80000"))
+        self.assertEqual(row.recurring_errors, Decimal("0.60000"))
+        self.assertEqual(row.review_urgency, Decimal("0.70000"))
+        self.assertEqual(row.uncertainty, Decimal("0.90000"))
+        self.assertEqual(row.recent_learning, Decimal("1.00000"))
+
+    def test_adaptive_start_uses_current_adaptive_skill_scope(self):
+        base = self._skill("R4-ADAPT-SCOPE", 1)
+        self._make_adaptive_route(skills=[base])
+
+        row = self._feature_by_key("assessment:start:adaptive")
+
+        self.assertIn(base.pk, row.skill_scope_ids)
+        self.assertIsNotNone(row.weakness)
+        self.assertIsNotNone(row.uncertainty)
+
+    def test_first_adaptive_assessment_has_full_novelty(self):
+        base = self._skill("R4-ADAPT-FIRST", 1)
+        self._make_adaptive_route(skills=[base])
+
+        row = self._feature_by_key("assessment:start:adaptive")
+
+        self.assertEqual(row.novelty, Decimal("1.00000"))
+        self.assertEqual(row.continuity, Decimal("0.00000"))
+
+    def test_adaptive_novelty_decreases_after_finished_sessions(self):
+        base = self._skill("R4-ADAPT-REPEAT", 1)
+        self._make_adaptive_route(skills=[base])
+        AssessmentSession.objects.create(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+            status=AssessmentSession.Status.COMPLETED,
+            ended_at=self.as_of - timedelta(days=1),
+        )
+
+        row = self._feature_by_key("assessment:start:adaptive")
+
+        self.assertEqual(row.novelty, Decimal("0.50000"))
+
+    def test_adaptive_start_lesson_without_prerequisites_is_fully_ready(self):
+        self._make_adaptive_route()
+        target = self._skill(
+            "R4-READY-NONE",
+            20,
+            cefr_level=Skill.CefrLevel.A2,
+        )
+        lesson = self._lesson("R4 ready none", 20, skills=[target])
+
+        row = self._feature_by_key(f"lesson:start:{lesson.pk}")
+
+        self.assertEqual(
+            row.prerequisite_readiness,
+            Decimal("1.00000"),
+        )
+
+    def test_adaptive_prerequisite_readiness_uses_weakest_transitive_mastery(self):
+        deep = self._skill("R4-READY-DEEP", 1)
+        middle = self._skill("R4-READY-MID", 2)
+        self._make_adaptive_route(skills=[deep, middle])
+        target = self._skill(
+            "R4-READY-TARGET",
+            20,
+            cefr_level=Skill.CefrLevel.A2,
+        )
+        lesson = self._lesson("R4 ready target", 20, skills=[target])
+        SkillPrerequisite.objects.create(
+            skill=target,
+            prerequisite_skill=middle,
+            required_mastery=Decimal("0.7000"),
+        )
+        SkillPrerequisite.objects.create(
+            skill=middle,
+            prerequisite_skill=deep,
+            required_mastery=Decimal("0.6000"),
+        )
+        self._mastery(middle, "0.82000")
+        self._mastery(deep, "0.76000")
+
+        row = self._feature_by_key(f"lesson:start:{lesson.pk}")
+
+        self.assertEqual(
+            row.prerequisite_readiness,
+            Decimal("0.76000"),
+        )
+
+    def test_vocabulary_review_uses_srs_urgency_not_skill_features(self):
+        self._due_vocabulary(
+            source_id="r4-vocab-urgency",
+            due_at=self.as_of - timedelta(days=15),
+        )
+
+        row = self._feature_by_key("vocabulary:review")
+
+        # Longest configured Leitner interval is 30 days, so 15 days late
+        # yields 0.5 urgency and dominates 1/50 backlog pressure.
+        self.assertEqual(row.review_urgency, Decimal("0.50000"))
+        self.assertEqual(row.skill_scope_ids, ())
+        self.assertIsNone(row.weakness)
+        self.assertIsNone(row.recurring_errors)
+        self.assertIsNone(row.uncertainty)
+        self.assertIsNone(row.recent_learning)
+        self.assertEqual(row.continuity, Decimal("0.00000"))
+        self.assertEqual(row.novelty, Decimal("0.00000"))
+
+    def test_vocabulary_backlog_saturates_review_urgency(self):
+        candidate = RecommendationCandidate(
+            candidate_key="vocabulary:review",
+            candidate_type=RecommendationCandidateType.VOCABULARY_REVIEW,
+            vocabulary_due_count=50,
+            vocabulary_oldest_due_at=self.as_of,
+        )
+
+        row = self._feature_by_key(
+            candidate.candidate_key,
+            candidates=(candidate,),
+        )
+
+        self.assertEqual(row.review_urgency, Decimal("1.00000"))
+
+    def test_invalid_vocabulary_due_metadata_is_rejected(self):
+        candidate = RecommendationCandidate(
+            candidate_key="vocabulary:review",
+            candidate_type=RecommendationCandidateType.VOCABULARY_REVIEW,
+            vocabulary_due_count=1,
+            vocabulary_oldest_due_at=self.as_of + timedelta(days=1),
+        )
+
+        with self.assertRaisesRegex(ValueError, "future"):
+            build_recommendation_features(
+                user=self.user,
+                candidates=(candidate,),
+                as_of=self.as_of,
+            )
+
+    def test_explicit_candidate_order_is_preserved(self):
+        skill = self._skill("R4-ORDER", 1)
+        lesson = self._lesson("R4 order", 1, skills=[skill])
+        self._due_vocabulary(source_id="r4-order-vocab")
+        eligible = filter_eligible_recommendation_candidates(
+            user=self.user,
+            as_of=self.as_of,
+        )
+        by_key = {row.candidate_key: row for row in eligible}
+        supplied = (
+            by_key["vocabulary:review"],
+            by_key[f"lesson:start:{lesson.pk}"],
+        )
+
+        features = build_recommendation_features(
+            user=self.user,
+            candidates=supplied,
+            as_of=self.as_of,
+        )
+
+        self.assertEqual(
+            tuple(row.candidate.candidate_key for row in features),
+            tuple(row.candidate_key for row in supplied),
+        )
+
+    def test_r4_feature_calculation_performs_no_writes(self):
+        skill = self._skill("R4-READONLY", 1)
+        self._lesson("R4 read only", 1, skills=[skill])
+        self._due_vocabulary(source_id="r4-readonly-vocab")
+
+        before = {
+            "lessons": Lesson.objects.count(),
+            "progress": LessonProgress.objects.count(),
+            "sessions": AssessmentSession.objects.count(),
+            "masteries": SkillMastery.objects.count(),
+            "vocab_states": VocabularySRSState.objects.count(),
+        }
+
+        build_recommendation_features(
             user=self.user,
             as_of=self.as_of,
         )
