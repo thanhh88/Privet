@@ -111,6 +111,15 @@ class AssessmentSession(models.Model):
                 ),
                 name="ck_assessment_session_mode",
             ),
+            models.UniqueConstraint(
+                fields=[
+                    "user",
+                ],
+                condition=Q(
+                    status="active",
+                ),
+                name="uq_one_active_assessment_per_user",
+            ),
         ]
 
         indexes = [
@@ -165,6 +174,11 @@ class AssessmentSession(models.Model):
         )
 
 class SessionQuestion(models.Model):
+    class SelectionReason(models.TextChoices):
+        NORMAL = "normal", "Normal"
+        REVIEW = "review", "Review"
+        DIAGNOSTIC = "diagnostic", "Diagnostic"
+
     session_question_id = models.BigAutoField(
         primary_key=True,
     )
@@ -205,6 +219,27 @@ class SessionQuestion(models.Model):
     #     ...
     # ]
     skill_snapshot = models.JSONField()
+
+    # Why this Question was selected into the
+    # assessment. Stored as historical planner
+    # metadata for audit and later evaluation.
+    selection_reason = models.CharField(
+        max_length=16,
+        choices=SelectionReason.choices,
+        null=True,
+        blank=True,
+    )
+
+    # Whether this exact Question had already been
+    # shown to this learner before selection into
+    # this assessment.
+    #
+    # Nullable temporarily so historical rows can
+    # be backfilled safely by migration.
+    was_seen_before = models.BooleanField(
+        null=True,
+        blank=True,
+    )
 
     sequence_number = models.PositiveIntegerField()
 
@@ -283,7 +318,6 @@ class SessionQuestion(models.Model):
             f"question={self.question_id}, "
             f"sequence={self.sequence_number})"
         )
-
 
 class QuestionAttempt(models.Model):
     attempt_id = models.BigAutoField(
@@ -636,6 +670,17 @@ class SkillMastery(models.Model):
     # Timestamp of the newest evidence included
     # in this mastery snapshot.
     last_evidence_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    # Most recent assessment evidence strong enough
+    # to reset the review clock for this Skill.
+    #
+    # This is distinct from last_evidence_at:
+    # weak secondary evidence must not silently
+    # postpone review.
+    last_review_evidence_at = models.DateTimeField(
         null=True,
         blank=True,
     )

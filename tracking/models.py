@@ -22,6 +22,7 @@ class StudySession(models.Model):
         LESSON = "lesson", "Lesson"
         PRACTICE = "practice", "Practice"
         TEST = "test", "Test"
+        VOCABULARY = "vocabulary", "Vocabulary"
 
     class Status(models.TextChoices):
         ACTIVE = "active", "Active"
@@ -100,6 +101,7 @@ class StudySession(models.Model):
                         "lesson",
                         "practice",
                         "test",
+                        "vocabulary",
                     ]
                 ),
                 name="ck_study_session_activity_type",
@@ -119,49 +121,57 @@ class StudySession(models.Model):
 
             models.CheckConstraint(
                 condition=(
-                    (
-                        Q(
-                            activity_type__in=[
-                                "lesson",
-                                "practice",
-                            ],
-                            lesson__isnull=False,
-                            assessment_session__isnull=True,
+                        (
+                            Q(
+                                activity_type__in=[
+                                    "lesson",
+                                    "practice",
+                                ],
+                                lesson__isnull=False,
+                                assessment_session__isnull=True,
+                            )
                         )
-                    )
-                    |
-                    (
-                        Q(
-                            activity_type="test",
-                            lesson__isnull=True,
-                            assessment_session__isnull=False,
+                        |
+                        (
+                            Q(
+                                activity_type="test",
+                                lesson__isnull=True,
+                                assessment_session__isnull=False,
+                            )
                         )
-                    )
+                        |
+                        (
+                            Q(
+                                activity_type="vocabulary",
+                                lesson__isnull=True,
+                                assessment_session__isnull=True,
+                            )
+                        )
                 ),
                 name="ck_study_session_target",
             ),
 
             models.CheckConstraint(
                 condition=(
-                    (
-                        Q(
-                            status__in=[
-                                "active",
-                                "paused",
-                            ],
-                            ended_at__isnull=True,
+                        (
+                            Q(
+                                status__in=[
+                                    "active",
+                                    "paused",
+                                ],
+                                ended_at__isnull=True,
+                            )
                         )
-                    )
-                    |
-                    (
-                        Q(
-                            status__in=[
-                                "completed",
-                                "abandoned",
-                            ],
-                            ended_at__isnull=False,
+                        |
+                        (
+                            Q(
+                                status__in=[
+                                    "completed",
+                                    "abandoned",
+                                ],
+                                ended_at__isnull=False,
+                            )
                         )
-                    )
                 ),
                 name="ck_study_session_end_state",
             ),
@@ -274,6 +284,15 @@ class StudyEvent(models.Model):
         TEST_COMPLETED = (
             "test_completed",
             "Test completed",
+        )
+        VOCABULARY_REVIEW_STARTED = (
+            "vocabulary_review_started",
+            "Vocabulary review started",
+        )
+
+        VOCABULARY_REVIEW_COMPLETED = (
+            "vocabulary_review_completed",
+            "Vocabulary review completed",
         )
 
     study_event_id = models.BigAutoField(

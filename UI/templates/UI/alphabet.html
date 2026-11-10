@@ -1,0 +1,461 @@
+
+{% extends "UI/base.html" %}
+{% load static %}
+
+{% block title %}
+Alphabet — Bảng chữ cái tiếng Nga | Privet
+{% endblock %}
+
+{% block body_class %}
+privet-lessons-page privet-alphabet-page
+{% endblock %}
+
+{% block page_styles %}
+<link
+  rel="stylesheet"
+  href="{% static 'UI/css/lessons.css' %}"
+>
+<link
+  rel="stylesheet"
+  href="{% static 'UI/css/alphabet.css' %}?v=20261023c"
+>
+{% endblock %}
+
+{% block content %}
+
+<div
+  class="lessons-page alpha-page"
+  id="alphabet-app"
+  data-overview-url="{% url 'alphabet:overview' %}"
+  data-table-url="{% url 'alphabet:table' %}"
+>
+
+  <!-- HEADER -->
+  <header class="app-header">
+
+    <a
+      href="{% url 'UI:dashboard' %}"
+      class="app-brand"
+    >
+      <img
+        src="{% static 'UI/images/privet-bear-logo.png' %}"
+        class="app-brand-logo"
+        alt=""
+        draggable="false"
+      >
+      <span>Privet</span>
+    </a>
+
+    <nav class="app-nav" aria-label="Điều hướng chính">
+
+      <a
+        href="{% url 'UI:dashboard' %}"
+        class="app-nav-link"
+      >Trang chủ</a>
+
+      <a
+        href="{% url 'UI:lessons' %}"
+        class="app-nav-link is-active"
+        aria-current="page"
+      >Bài học</a>
+
+      <a
+        href="{% url 'UI:test_hub' %}"
+        class="app-nav-link"
+      >Bài test</a>
+
+      <a
+        href="{% url 'UI:progress' %}"
+        class="app-nav-link"
+      >Tiến độ</a>
+
+    </nav>
+
+    <div class="app-user">
+      <span
+        class="app-notification-dot"
+        aria-hidden="true"
+      ></span>
+      <div class="app-avatar" title="{{ display_name }}">
+        {{ display_name|slice:":1"|upper }}
+      </div>
+    </div>
+
+  </header>
+
+
+  <main class="lessons-main" id="main-content">
+
+    <!-- CATEGORY SELECTOR -->
+    <section class="lesson-category-section">
+
+      <nav class="lesson-tabs" aria-label="Nhóm kiến thức">
+
+        <a
+          class="lesson-tab"
+          href="{% url 'UI:lessons' %}?category=grammar&amp;level=A1"
+        >
+          Ngữ pháp
+        </a>
+
+        <a
+          class="lesson-tab is-active"
+          href="{% url 'UI:vocabulary' %}?level=A1"
+          aria-current="page"
+        >
+          Từ vựng
+        </a>
+
+      </nav>
+
+    </section>
+
+
+    <div class="lessons-layout">
+
+      <!-- SIDEBAR -->
+      <aside class="lesson-sidebar">
+
+        <p class="lesson-sidebar-title">
+          Nhóm nội dung
+        </p>
+
+        <!-- ALPHABET -->
+        <a
+          href="{% url 'UI:alphabet' %}"
+          class="level-button is-active"
+          aria-current="page"
+        >
+          <span class="level-code" lang="ru">АБВ</span>
+          <span class="level-copy">
+            <strong>Alphabet</strong>
+            <small>33 chữ cái tiếng Nga</small>
+          </span>
+        </a>
+
+        <!-- VOCABULARY A1 -->
+        <a
+          href="{% url 'UI:vocabulary' %}?level=A1"
+          class="level-button"
+        >
+          <span class="level-code">A1</span>
+          <span class="level-copy">
+            <strong>Cơ bản</strong>
+            <small>Từ vựng nền tảng</small>
+          </span>
+        </a>
+
+        <!-- VOCABULARY A2 -->
+        <a
+          href="{% url 'UI:vocabulary' %}?level=A2"
+          class="level-button"
+        >
+          <span class="level-code">A2</span>
+          <span class="level-copy">
+            <strong>Sơ cấp</strong>
+            <small>Mở rộng từ vựng</small>
+          </span>
+        </a>
+
+        <!-- VOCABULARY B1 -->
+        <a
+          href="{% url 'UI:vocabulary' %}?level=B1"
+          class="level-button"
+        >
+          <span class="level-code">B1</span>
+
+          <span class="level-copy">
+            <strong>Mở rộng</strong>
+            <small>Đang chuẩn bị</small>
+          </span>
+        </a>
+
+        <div class="sidebar-note">
+          <img
+            src="{% static 'UI/images/privet-bear-logo.png' %}"
+            alt=""
+            draggable="false"
+          >
+          <p>
+            Nghe âm, ghép chữ và tập đọc từng chút một nhé!
+          </p>
+        </div>
+
+      </aside>
+
+
+      <!-- ALPHABET CONTENT -->
+      <section
+        class="lesson-content alpha-content"
+        aria-labelledby="alpha-title"
+      >
+
+        <!-- BACK BUTTON -->
+        <a
+          class="alpha-back"
+          href="{% url 'UI:vocabulary' %}?level=A1"
+        >
+          ← Quay về Từ vựng
+        </a>
+
+
+        <!-- INTRO -->
+        <header class="alpha-hero">
+
+          <div class="alpha-hero-copy">
+
+            <p class="alpha-kicker">
+              ALPHABET • DÀNH CHO NGƯỜI MỚI
+            </p>
+
+            <h1 id="alpha-title">
+              Bảng chữ cái tiếng Nga
+            </h1>
+
+            <p class="alpha-lead">
+              <strong>
+                Làm quen với Cyrillic, nghe phát âm,
+                tập ghép âm và đọc những từ tiếng Nga
+                đơn giản.
+              </strong>
+            </p>
+
+          </div>
+
+          <div class="alpha-stats">
+
+            <span class="alpha-stat">
+              <strong>33</strong>
+              chữ cái
+            </span>
+
+            <span class="alpha-stat">
+              <strong>7</strong>
+              bài học
+            </span>
+
+          </div>
+
+        </header>
+
+
+        <!-- LEARNING MODE -->
+        <section
+          class="alpha-mode-section"
+          aria-labelledby="alpha-choose-heading"
+        >
+
+          <h2
+            class="alpha-subtitle"
+            id="alpha-choose-heading"
+          >
+            Chọn cách học
+          </h2>
+
+          <div
+            class="alpha-modes"
+            role="tablist"
+            aria-label="Cách học bảng chữ cái"
+          >
+
+            <button
+              type="button"
+              id="alpha-tab-lessons"
+              class="alpha-mode is-active"
+              role="tab"
+              aria-selected="true"
+              aria-controls="alpha-panel-lessons"
+              data-mode="lessons"
+            >
+              <span class="alpha-mode-icon">
+                01–07
+              </span>
+
+              <span class="alpha-mode-copy">
+                <strong>Học theo từng bài</strong>
+                <small>7 bài, từ dễ đến khó</small>
+              </span>
+            </button>
+
+
+            <button
+              type="button"
+              id="alpha-tab-table"
+              class="alpha-mode"
+              role="tab"
+              aria-selected="false"
+              aria-controls="alpha-panel-table"
+              tabindex="-1"
+              data-mode="table"
+            >
+              <span class="alpha-mode-icon" lang="ru">
+                А–Я
+              </span>
+
+              <span class="alpha-mode-copy">
+                <strong>Học cả bảng</strong>
+                <small>Chọn tự do 33 chữ cái</small>
+              </span>
+            </button>
+
+          </div>
+
+        </section>
+
+
+        <!-- STATUS -->
+        <p
+          id="alpha-status"
+          class="alpha-status"
+          role="status"
+          aria-live="polite"
+        >
+          Đang tải Alphabet…
+        </p>
+
+
+        <!-- MODE 1: LEARN BY LESSONS -->
+        <div
+          id="alpha-panel-lessons"
+          class="alpha-panel"
+          role="tabpanel"
+          aria-labelledby="alpha-tab-lessons"
+        >
+
+          <!-- LESSON SELECTION -->
+          <section class="alpha-lesson-browser">
+
+            <div class="alpha-section-head">
+
+              <h2>7 bài học Alphabet</h2>
+
+              <p>
+                Chọn một bài để luyện đọc từng nhóm chữ cái.
+              </p>
+
+            </div>
+
+            <div
+              id="alpha-lessons-grid"
+              class="alpha-lessons-grid"
+              aria-label="Danh sách 7 bài học"
+            ></div>
+
+          </section>
+
+
+          <!-- SEPARATE LEARNING WORKSPACE -->
+          <section
+            id="alpha-lesson-workspace"
+            class="alpha-learning-panel"
+            aria-labelledby="alpha-current-lesson-title"
+            hidden
+          >
+
+            <div class="alpha-learning-header">
+
+              <span
+                id="alpha-current-lesson-number"
+                class="alpha-learning-badge"
+              >
+                Bài 01
+              </span>
+
+              <div>
+                <h2 id="alpha-current-lesson-title"></h2>
+                <p id="alpha-current-lesson-objective"></p>
+              </div>
+
+            </div>
+
+            <div class="alpha-letter-picker">
+
+              <h3 class="alpha-picker-title">
+                Chọn chữ cái để học
+              </h3>
+
+              <div
+                id="alpha-lesson-letters"
+                class="alpha-letter-strip"
+                aria-label="Các chữ cái trong bài"
+              ></div>
+
+            </div>
+
+            <div
+              id="alpha-lesson-detail-slot"
+              class="alpha-detail-slot"
+            ></div>
+
+          </section>
+
+        </div>
+
+
+        <!-- MODE 2: FULL ALPHABET -->
+        <div
+          id="alpha-panel-table"
+          class="alpha-panel"
+          role="tabpanel"
+          aria-labelledby="alpha-tab-table"
+          hidden
+        >
+
+          <section class="alpha-table-browser">
+
+            <div class="alpha-section-head">
+
+              <h2>
+                Bảng chữ cái Cyrillic
+                <span lang="ru">А–Я</span>
+              </h2>
+
+              <p>
+                Chọn một chữ bất kỳ để học phát âm,
+                ghép chữ và xem từ ví dụ.
+              </p>
+
+            </div>
+
+            <div
+              id="alpha-table-grid"
+              class="alpha-table-grid"
+              aria-label="33 chữ cái tiếng Nga"
+            ></div>
+
+          </section>
+
+          <div class="alpha-table-layout">
+
+            <div
+              id="alpha-table-detail-slot"
+            ></div>
+
+          </div>
+
+        </div>
+
+
+        <!-- SHARED DETAIL -->
+        <article
+          id="alpha-detail-card"
+          class="alpha-detail"
+          aria-label="Chi tiết chữ cái"
+          tabindex="-1"
+          hidden
+        ></article>
+
+      </section>
+
+    </div>
+
+  </main>
+
+</div>
+
+<script
+  src="{% static 'UI/js/alphabet.js' %}?v=20261023c"
+  defer
+></script>
+
+{% endblock %}

@@ -1,0 +1,524 @@
+{% extends "UI/base.html" %}
+{% load static %}
+
+{% block body_class %}
+privet-lessons-page
+{% endblock %}
+
+
+{% block page_styles %}
+<link
+  rel="stylesheet"
+  href="{% static 'UI/css/lessons.css' %}"
+>
+{% endblock %}
+
+
+{% block content %}
+
+<div class="lessons-page">
+
+
+  <!-- =====================================================
+       HEADER
+       ===================================================== -->
+
+  <header class="app-header">
+
+    <!-- BRAND -->
+
+    <a
+      href="{% url 'UI:dashboard' %}"
+      class="app-brand"
+      aria-label="Privet"
+    >
+
+      <img
+        src="{% static 'UI/images/privet-bear-logo.png' %}"
+        class="app-brand-logo"
+        alt=""
+        draggable="false"
+      >
+
+      <span>
+        Privet
+      </span>
+
+    </a>
+
+
+
+    <!-- NAVIGATION -->
+
+    <nav
+      class="app-nav"
+      aria-label="Điều hướng chính"
+    >
+
+      <a
+        href="{% url 'UI:dashboard' %}"
+        class="app-nav-link"
+      >
+        Trang chủ
+      </a>
+
+
+      <a
+        href="{% url 'UI:lessons' %}"
+        class="app-nav-link is-active"
+      >
+        Bài học
+      </a>
+
+
+      <a
+        href="{% url 'UI:test_hub' %}"
+        class="app-nav-link"
+      >
+        Bài test
+      </a>
+
+
+      <a
+        href="{% url 'UI:progress' %}"
+        class="app-nav-link"
+      >
+        Tiến độ
+      </a>
+
+    </nav>
+
+
+
+    <!-- USER -->
+
+    <div class="app-user">
+
+      <span
+        class="app-notification-dot"
+        aria-hidden="true"
+      ></span>
+
+
+      <div
+        class="app-avatar"
+        title="{{ display_name }}"
+      >
+        {{ display_name|slice:":1"|upper }}
+      </div>
+
+    </div>
+
+  </header>
+
+
+
+  <!-- =====================================================
+       MAIN
+       ===================================================== -->
+
+  <main
+    class="lessons-main"
+    id="main-content"
+  >
+
+
+    <!-- ===================================================
+         CATEGORY SELECTOR
+         =================================================== -->
+
+    <section class="lesson-category-section">
+
+      <nav
+        class="lesson-tabs"
+        aria-label="Loại bài học"
+      >
+
+        <a
+          href="{% url 'UI:lessons' %}?category=grammar&level={{ selected_level }}"
+          class="lesson-tab{% if selected_category == 'grammar' %} is-active{% endif %}"
+        >
+          Ngữ pháp
+        </a>
+
+
+        <a
+
+          href="{% url 'UI:vocabulary' %}?level=A1"
+          class="lesson-tab{% if selected_category == 'vocabulary' %} is-active{% endif %}"
+        >
+          Từ vựng
+        </a>
+
+      </nav>
+
+    </section>
+
+
+
+    <!-- ===================================================
+         PAGE LAYOUT
+         =================================================== -->
+
+    <section class="lessons-layout">
+
+
+      <!-- =================================================
+           LEVEL SIDEBAR
+           ================================================= -->
+
+      <aside class="lesson-sidebar">
+
+
+<p class="lesson-sidebar-title">
+  {% if selected_category == "vocabulary" %}
+    Nhóm nội dung
+  {% else %}
+    Trình độ
+  {% endif %}
+</p>
+
+{% if selected_category == "vocabulary" %}
+
+  <a
+    href="{% url 'UI:alphabet' %}"
+    class="level-button"
+  >
+    <span class="level-code" lang="ru">
+      АБВ
+    </span>
+
+    <span class="level-copy">
+      <strong>Alphabet</strong>
+      <small>33 chữ cái · 7 bài học</small>
+    </span>
+  </a>
+
+{% endif %}
+
+
+
+
+        <!-- A1 -->
+
+        <a
+          href="{% url 'UI:lessons' %}?category={{ selected_category }}&level=A1"
+          class="level-button{% if selected_level == 'A1' %} is-active{% endif %}"
+        >
+
+          <span class="level-code">
+            A1
+          </span>
+
+
+          <span class="level-copy">
+
+            <strong>
+              Cơ bản
+            </strong>
+
+            <small>
+              Bắt đầu từ nền tảng
+            </small>
+
+          </span>
+
+        </a>
+
+
+
+        <!-- A2 -->
+
+        <a
+          href="{% url 'UI:lessons' %}?category={{ selected_category }}&level=A2"
+          class="level-button{% if selected_level == 'A2' %} is-active{% endif %}"
+        >
+
+          <span class="level-code">
+            A2
+          </span>
+
+
+          <span class="level-copy">
+
+            <strong>
+              Sơ cấp
+            </strong>
+
+            <small>
+              Mở rộng kiến thức
+            </small>
+
+          </span>
+
+        </a>
+
+{% if selected_category == "grammar" %}
+
+  <!-- Giữ nguyên toàn bộ thẻ <a> B1 hiện tại tại đây -->
+
+{% endif %}
+
+        <!-- B1 -->
+
+        <a
+          href="{% url 'UI:lessons' %}?category={{ selected_category }}&level=B1"
+          class="level-button{% if selected_level == 'B1' %} is-active{% endif %}"
+        >
+
+          <span class="level-code">
+            B1
+          </span>
+
+
+          <span class="level-copy">
+
+            <strong>
+              Mở rộng
+            </strong>
+
+            <small>
+              Nội dung nâng cao
+            </small>
+
+          </span>
+
+        </a>
+
+
+
+        <!-- BEAR NOTE -->
+
+        <div class="sidebar-note">
+
+          <img
+            src="{% static 'UI/images/privet-bear-logo.png' %}"
+            alt=""
+            draggable="false"
+          >
+
+
+          <p>
+            Học từng bài theo tốc độ của bạn nhé!
+          </p>
+
+        </div>
+
+      </aside>
+
+
+
+      <!-- =================================================
+           LESSON CONTENT
+           ================================================= -->
+
+      <section class="lesson-content">
+
+
+        <!-- ===============================================
+             CONTENT HEADER
+             =============================================== -->
+
+        <header class="lesson-content-header">
+
+          <p class="section-label">
+
+            {% if selected_category == "grammar" %}
+              NGỮ PHÁP
+            {% else %}
+              TỪ VỰNG
+            {% endif %}
+
+            • {{ selected_level }}
+
+          </p>
+
+
+          <span class="lesson-count">
+            {{ lessons|length }} bài
+          </span>
+
+        </header>
+
+
+
+        <!-- ===============================================
+             LESSON GRID
+             =============================================== -->
+
+        <div class="lesson-grid">
+
+
+          {% for lesson in lessons %}
+
+            <article class="lesson-card">
+
+
+              <!-- CARD TOP -->
+
+              <div class="lesson-card-top">
+
+                <span class="lesson-number">
+
+                  {% if lesson.order %}
+                    {{ lesson.order|stringformat:"02d" }}
+                  {% else %}
+                    {{ forloop.counter|stringformat:"02d" }}
+                  {% endif %}
+
+                </span>
+
+
+                <span class="lesson-status">
+                  Bài học
+                </span>
+
+              </div>
+
+
+
+              <!-- CARD BODY -->
+
+              <div class="lesson-card-body">
+
+                <h3>
+                  {{ lesson.title }}
+                </h3>
+
+
+                {% if lesson.title_vi %}
+
+                  <p class="lesson-card-translation">
+                    {{ lesson.title_vi }}
+                  </p>
+
+                {% endif %}
+
+
+                {% if lesson.intro %}
+
+                  <p class="lesson-card-description">
+                    {{ lesson.intro|truncatechars:95 }}
+                  </p>
+
+                {% endif %}
+
+              </div>
+
+
+
+              <!-- META -->
+
+              <div class="lesson-card-meta">
+
+                <span>
+                  {{ lesson.cefr_level }}
+                </span>
+
+
+                {% if lesson.estimated_minutes %}
+
+                  <span>
+                    {{ lesson.estimated_minutes }} phút
+                  </span>
+
+                {% endif %}
+
+              </div>
+
+
+
+              <!-- TEMP PROGRESS -->
+
+              <div
+                class="lesson-card-progress"
+                aria-hidden="true"
+              >
+
+                <div
+                  class="lesson-card-progress-bar"
+                  style="width: 0%;"
+                ></div>
+
+              </div>
+
+
+
+              <!-- CARD FOOTER -->
+
+              <div class="lesson-card-footer">
+
+                <span class="lesson-progress-text">
+                  0%
+                </span>
+
+
+                <a
+                  href="{% url 'UI:lesson_detail' lesson.slug %}"
+                  class="lesson-open-link"
+                >
+                  Bắt đầu
+
+                  <span aria-hidden="true">
+                    →
+                  </span>
+                </a>
+
+              </div>
+
+            </article>
+
+
+
+          {% empty %}
+
+
+            <!-- ===========================================
+                 EMPTY STATE
+                 =========================================== -->
+
+            <div class="lesson-empty">
+
+              <img
+                src="{% static 'UI/images/privet-bear-logo.png' %}"
+                alt=""
+                draggable="false"
+              >
+
+
+              <h3>
+                Chưa có bài học
+              </h3>
+
+
+              <p>
+                Nội dung cho phần này đang được chuẩn bị.
+              </p>
+
+
+              {% if selected_level != "A1" %}
+
+                <a
+                  href="{% url 'UI:lessons' %}?category={{ selected_category }}&level=A1"
+                >
+                  Xem bài A1
+                </a>
+
+              {% endif %}
+
+            </div>
+
+          {% endfor %}
+
+
+        </div>
+
+      </section>
+
+    </section>
+
+  </main>
+
+</div>
+
+{% endblock %}

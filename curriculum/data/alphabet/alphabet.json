@@ -1,0 +1,923 @@
+{
+  "version": "alphabet-v1",
+  "lessons": [
+    {
+      "id": "lesson-1",
+      "title": "Những âm đầu tiên",
+      "objective": "Nhận diện những chữ đầu tiên và đọc các tổ hợp đơn giản.",
+      "letter_ids": [
+        "a",
+        "o",
+        "m",
+        "t",
+        "k"
+      ]
+    },
+    {
+      "id": "lesson-2",
+      "title": "Đọc âm tiết cơ bản",
+      "objective": "Ghép phụ âm và nguyên âm để đọc những từ ngắn đầu tiên.",
+      "letter_ids": [
+        "u",
+        "i",
+        "n",
+        "s",
+        "r"
+      ]
+    },
+    {
+      "id": "lesson-3",
+      "title": "Mở rộng phụ âm",
+      "objective": "Làm quen thêm các phụ âm và đọc được nhiều từ thông dụng.",
+      "letter_ids": [
+        "e_back",
+        "l",
+        "p",
+        "b",
+        "v"
+      ]
+    },
+    {
+      "id": "lesson-4",
+      "title": "Những âm mới",
+      "objective": "Phân biệt Ы, Е và mở rộng kỹ năng ghép âm.",
+      "letter_ids": [
+        "y",
+        "ye",
+        "d",
+        "g",
+        "z"
+      ]
+    },
+    {
+      "id": "lesson-5",
+      "title": "Các chữ có yếu tố Й",
+      "objective": "Làm quen Ё, Ю, Я và âm Й trong những vị trí khác nhau.",
+      "letter_ids": [
+        "yo",
+        "yu",
+        "ya",
+        "short_i"
+      ]
+    },
+    {
+      "id": "lesson-6",
+      "title": "Phụ âm đặc biệt",
+      "objective": "Luyện nghe và phân biệt các phụ âm khó của tiếng Nga.",
+      "letter_ids": [
+        "zh",
+        "sh",
+        "ch",
+        "shch",
+        "ts"
+      ]
+    },
+    {
+      "id": "lesson-7",
+      "title": "Hoàn thiện bảng chữ cái",
+      "objective": "Đọc Ф, Х và hiểu vai trò của dấu mềm, dấu cứng.",
+      "letter_ids": [
+        "f",
+        "kh",
+        "soft_sign",
+        "hard_sign"
+      ]
+    }
+  ],
+  "letters": [
+    {
+      "id": "a",
+      "upper": "А",
+      "lower": "а",
+      "name_ru": "а",
+      "kind": "vowel",
+      "sound_sample": "ма",
+      "sound_vi": "Âm /a/, gần âm a tiếng Việt.",
+      "guide_vi": "Mở miệng tương đối rộng và giữ lưỡi thấp. Khi có trọng âm, phát âm a rõ.",
+      "blends": [
+        "ма",
+        "та",
+        "ка"
+      ],
+      "examples": [
+        {
+          "ru": "ма́ма",
+          "vi": "mẹ"
+        },
+        {
+          "ru": "а́дрес",
+          "vi": "địa chỉ"
+        }
+      ]
+    },
+    {
+      "id": "b",
+      "upper": "Б",
+      "lower": "б",
+      "name_ru": "бэ",
+      "kind": "consonant",
+      "sound_sample": "ба",
+      "sound_vi": "Âm /b/ hữu thanh.",
+      "guide_vi": "Khép hai môi rồi mở ra trong khi dây thanh rung. So sánh với п vô thanh.",
+      "blends": [
+        "ба",
+        "бо",
+        "би"
+      ],
+      "examples": [
+        {
+          "ru": "брат",
+          "vi": "anh/em trai"
+        },
+        {
+          "ru": "бана́н",
+          "vi": "chuối"
+        }
+      ]
+    },
+    {
+      "id": "v",
+      "upper": "В",
+      "lower": "в",
+      "name_ru": "вэ",
+      "kind": "consonant",
+      "sound_sample": "ва",
+      "sound_vi": "Âm /v/ hữu thanh.",
+      "guide_vi": "Đặt răng trên chạm nhẹ môi dưới và phát âm có rung dây thanh. Giữ luồng hơi liên tục, không thêm âm đệm.",
+      "blends": [
+        "ва",
+        "во",
+        "ви"
+      ],
+      "examples": [
+        {
+          "ru": "вода́",
+          "vi": "nước"
+        },
+        {
+          "ru": "ва́за",
+          "vi": "bình hoa"
+        }
+      ]
+    },
+    {
+      "id": "g",
+      "upper": "Г",
+      "lower": "г",
+      "name_ru": "гэ",
+      "kind": "consonant",
+      "sound_sample": "га",
+      "sound_vi": "Âm /g/ hữu thanh.",
+      "guide_vi": "Nâng phần sau lưỡi chạm vòm mềm rồi bật ra có rung dây thanh. So sánh với к.",
+      "blends": [
+        "га",
+        "го",
+        "ги"
+      ],
+      "examples": [
+        {
+          "ru": "год",
+          "vi": "năm"
+        },
+        {
+          "ru": "гора́",
+          "vi": "núi"
+        }
+      ]
+    },
+    {
+      "id": "d",
+      "upper": "Д",
+      "lower": "д",
+      "name_ru": "дэ",
+      "kind": "consonant",
+      "sound_sample": "да",
+      "sound_vi": "Âm /d/ hữu thanh.",
+      "guide_vi": "Đưa đầu lưỡi chạm vùng phía sau răng trên và phát âm có rung dây thanh. So sánh với т.",
+      "blends": [
+        "да",
+        "до",
+        "ди"
+      ],
+      "examples": [
+        {
+          "ru": "дом",
+          "vi": "ngôi nhà"
+        },
+        {
+          "ru": "да",
+          "vi": "vâng; có"
+        }
+      ]
+    },
+    {
+      "id": "ye",
+      "upper": "Е",
+      "lower": "е",
+      "name_ru": "е",
+      "kind": "vowel",
+      "sound_sample": "еда́",
+      "sound_vi": "Ở đầu từ thường có yếu tố /j/ trước nguyên âm; sau phụ âm thường báo âm mềm.",
+      "guide_vi": "Khi đứng đầu từ, hãy nghe yếu tố gần y-e. Sau phụ âm, e thường làm mềm phụ âm đó; đừng áp dụng cách đọc y-e cho mọi vị trí.",
+      "blends": [
+        "е",
+        "ме",
+        "ле"
+      ],
+      "examples": [
+        {
+          "ru": "еда́",
+          "vi": "đồ ăn"
+        },
+        {
+          "ru": "есть",
+          "vi": "ăn (động từ nguyên mẫu)"
+        }
+      ]
+    },
+    {
+      "id": "yo",
+      "upper": "Ё",
+      "lower": "ё",
+      "name_ru": "ё",
+      "kind": "vowel",
+      "sound_sample": "ёлка",
+      "sound_vi": "Ở đầu từ thường có âm gần /jo/; sau phụ âm thường làm mềm phụ âm.",
+      "guide_vi": "Ở đầu từ, nghe âm y-o liền nhau. Sau phụ âm, chú ý phụ âm đứng trước thường mềm; chữ ё mang trọng âm.",
+      "blends": [
+        "ё",
+        "мё",
+        "лё"
+      ],
+      "examples": [
+        {
+          "ru": "ёлка",
+          "vi": "cây thông"
+        },
+        {
+          "ru": "ёж",
+          "vi": "nhím"
+        }
+      ]
+    },
+    {
+      "id": "zh",
+      "upper": "Ж",
+      "lower": "ж",
+      "name_ru": "жэ",
+      "kind": "consonant",
+      "sound_sample": "жа",
+      "sound_vi": "Âm xát hữu thanh /ʐ/, gần zh.",
+      "guide_vi": "Đưa lưỡi hơi lùi về sau và rung dây thanh; thường là phụ âm cứng. So sánh với ш.",
+      "blends": [
+        "жа",
+        "жу",
+        "жи"
+      ],
+      "examples": [
+        {
+          "ru": "жук",
+          "vi": "bọ cánh cứng"
+        },
+        {
+          "ru": "жира́ф",
+          "vi": "hươu cao cổ"
+        }
+      ]
+    },
+    {
+      "id": "z",
+      "upper": "З",
+      "lower": "з",
+      "name_ru": "зэ",
+      "kind": "consonant",
+      "sound_sample": "за",
+      "sound_vi": "Âm /z/ hữu thanh.",
+      "guide_vi": "Giữ cách đặt lưỡi gần âm с nhưng rung dây thanh. Nghe sự khác biệt giữa з và с.",
+      "blends": [
+        "за",
+        "зо",
+        "зу"
+      ],
+      "examples": [
+        {
+          "ru": "зуб",
+          "vi": "răng"
+        },
+        {
+          "ru": "зонт",
+          "vi": "ô; dù"
+        }
+      ]
+    },
+    {
+      "id": "i",
+      "upper": "И",
+      "lower": "и",
+      "name_ru": "и",
+      "kind": "vowel",
+      "sound_sample": "ми",
+      "sound_vi": "Âm /i/, gần i tiếng Việt.",
+      "guide_vi": "Kéo nhẹ hai khóe môi sang hai bên. Chữ и thường đi cùng phụ âm mềm ở phía trước.",
+      "blends": [
+        "ми",
+        "ни",
+        "ри"
+      ],
+      "examples": [
+        {
+          "ru": "и́мя",
+          "vi": "tên"
+        },
+        {
+          "ru": "игра́",
+          "vi": "trò chơi"
+        }
+      ]
+    },
+    {
+      "id": "short_i",
+      "upper": "Й",
+      "lower": "й",
+      "name_ru": "и краткое",
+      "kind": "consonant",
+      "sound_sample": "мой",
+      "sound_vi": "Âm /j/ ngắn, gần yếu tố y trong từ yêu.",
+      "guide_vi": "Lướt nhanh từ vị trí i sang nguyên âm tiếp theo hoặc kết thúc vần. Không kéo dài như и.",
+      "blends": [
+        "ай",
+        "ой",
+        "ей"
+      ],
+      "examples": [
+        {
+          "ru": "чай",
+          "vi": "trà"
+        },
+        {
+          "ru": "мой",
+          "vi": "của tôi (giống đực)"
+        }
+      ]
+    },
+    {
+      "id": "k",
+      "upper": "К",
+      "lower": "к",
+      "name_ru": "ка",
+      "kind": "consonant",
+      "sound_sample": "ка",
+      "sound_vi": "Âm /k/ vô thanh.",
+      "guide_vi": "Đưa phần sau của lưỡi chạm vòm mềm rồi thả ra. Không thêm nguyên âm đệm sau k.",
+      "blends": [
+        "ка",
+        "ко",
+        "ку"
+      ],
+      "examples": [
+        {
+          "ru": "кот",
+          "vi": "con mèo"
+        },
+        {
+          "ru": "кино́",
+          "vi": "phim; rạp chiếu phim"
+        }
+      ]
+    },
+    {
+      "id": "l",
+      "upper": "Л",
+      "lower": "л",
+      "name_ru": "эль",
+      "kind": "consonant",
+      "sound_sample": "ла",
+      "sound_vi": "Âm /l/, có dạng cứng và mềm.",
+      "guide_vi": "Đặt đầu lưỡi gần lợi trên, cho hơi đi qua hai bên lưỡi. Nghe sự khác biệt giữa ла và ли.",
+      "blends": [
+        "ла",
+        "ло",
+        "лу"
+      ],
+      "examples": [
+        {
+          "ru": "лук",
+          "vi": "hành tây; cái cung"
+        },
+        {
+          "ru": "ла́мпа",
+          "vi": "đèn"
+        }
+      ]
+    },
+    {
+      "id": "m",
+      "upper": "М",
+      "lower": "м",
+      "name_ru": "эм",
+      "kind": "consonant",
+      "sound_sample": "ма",
+      "sound_vi": "Âm /m/, gần m tiếng Việt.",
+      "guide_vi": "Khép hai môi, cho hơi đi qua mũi và rung dây thanh. Tránh thêm một nguyên âm vào sau m.",
+      "blends": [
+        "ма",
+        "мо",
+        "му"
+      ],
+      "examples": [
+        {
+          "ru": "ма́ма",
+          "vi": "mẹ"
+        },
+        {
+          "ru": "мир",
+          "vi": "thế giới; hòa bình"
+        }
+      ]
+    },
+    {
+      "id": "n",
+      "upper": "Н",
+      "lower": "н",
+      "name_ru": "эн",
+      "kind": "consonant",
+      "sound_sample": "на",
+      "sound_vi": "Âm /n/, gần n tiếng Việt.",
+      "guide_vi": "Đưa đầu lưỡi chạm vùng răng trên, cho hơi đi qua mũi và rung dây thanh.",
+      "blends": [
+        "на",
+        "но",
+        "ни"
+      ],
+      "examples": [
+        {
+          "ru": "нос",
+          "vi": "mũi"
+        },
+        {
+          "ru": "нога́",
+          "vi": "chân"
+        }
+      ]
+    },
+    {
+      "id": "o",
+      "upper": "О",
+      "lower": "о",
+      "name_ru": "о",
+      "kind": "vowel",
+      "sound_sample": "мо",
+      "sound_vi": "Khi có trọng âm, gần /o/ với môi tròn.",
+      "guide_vi": "Tròn môi khi đọc âm o có trọng âm. Khi không có trọng âm, âm này thường biến đổi; hãy nghe từ mẫu.",
+      "blends": [
+        "мо",
+        "то",
+        "ко"
+      ],
+      "examples": [
+        {
+          "ru": "о́н",
+          "vi": "anh ấy"
+        },
+        {
+          "ru": "окно́",
+          "vi": "cửa sổ"
+        }
+      ]
+    },
+    {
+      "id": "p",
+      "upper": "П",
+      "lower": "п",
+      "name_ru": "пэ",
+      "kind": "consonant",
+      "sound_sample": "па",
+      "sound_vi": "Âm /p/ vô thanh.",
+      "guide_vi": "Khép hai môi rồi mở nhanh để phát âm p; tránh bật hơi quá mạnh.",
+      "blends": [
+        "па",
+        "по",
+        "пи"
+      ],
+      "examples": [
+        {
+          "ru": "па́па",
+          "vi": "bố"
+        },
+        {
+          "ru": "парк",
+          "vi": "công viên"
+        }
+      ]
+    },
+    {
+      "id": "r",
+      "upper": "Р",
+      "lower": "р",
+      "name_ru": "эр",
+      "kind": "consonant",
+      "sound_sample": "ра",
+      "sound_vi": "Âm r rung bằng đầu lưỡi.",
+      "guide_vi": "Đặt đầu lưỡi gần lợi trên và cho đầu lưỡi rung ngắn. Có thể luyện dần bằng các âm tiết ra, ro, ru.",
+      "blends": [
+        "ра",
+        "ро",
+        "ру"
+      ],
+      "examples": [
+        {
+          "ru": "рот",
+          "vi": "miệng"
+        },
+        {
+          "ru": "рука́",
+          "vi": "bàn tay; cánh tay"
+        }
+      ]
+    },
+    {
+      "id": "s",
+      "upper": "С",
+      "lower": "с",
+      "name_ru": "эс",
+      "kind": "consonant",
+      "sound_sample": "са",
+      "sound_vi": "Âm /s/ vô thanh.",
+      "guide_vi": "Cho hơi đi qua khe hẹp gần răng trên, không rung dây thanh. Tránh phát âm thành sh.",
+      "blends": [
+        "са",
+        "со",
+        "су"
+      ],
+      "examples": [
+        {
+          "ru": "сок",
+          "vi": "nước ép"
+        },
+        {
+          "ru": "сон",
+          "vi": "giấc ngủ"
+        }
+      ]
+    },
+    {
+      "id": "t",
+      "upper": "Т",
+      "lower": "т",
+      "name_ru": "тэ",
+      "kind": "consonant",
+      "sound_sample": "та",
+      "sound_vi": "Âm /t/ vô thanh.",
+      "guide_vi": "Đưa đầu lưỡi chạm vùng phía sau răng trên rồi bật ra; không bật hơi mạnh như một số âm t tiếng Anh.",
+      "blends": [
+        "та",
+        "то",
+        "ту"
+      ],
+      "examples": [
+        {
+          "ru": "там",
+          "vi": "ở đó"
+        },
+        {
+          "ru": "торт",
+          "vi": "bánh kem"
+        }
+      ]
+    },
+    {
+      "id": "u",
+      "upper": "У",
+      "lower": "у",
+      "name_ru": "у",
+      "kind": "vowel",
+      "sound_sample": "му",
+      "sound_vi": "Âm /u/, gần u tiếng Việt.",
+      "guide_vi": "Tròn môi và đưa môi hơi ra trước. Giữ âm gọn khi ghép với phụ âm.",
+      "blends": [
+        "му",
+        "ту",
+        "ну"
+      ],
+      "examples": [
+        {
+          "ru": "у́тро",
+          "vi": "buổi sáng"
+        },
+        {
+          "ru": "у́хо",
+          "vi": "tai"
+        }
+      ]
+    },
+    {
+      "id": "f",
+      "upper": "Ф",
+      "lower": "ф",
+      "name_ru": "эф",
+      "kind": "consonant",
+      "sound_sample": "фа",
+      "sound_vi": "Âm /f/ vô thanh.",
+      "guide_vi": "Đặt răng trên chạm nhẹ môi dưới và cho hơi đi ra, không rung dây thanh. So sánh với в.",
+      "blends": [
+        "фа",
+        "фо",
+        "фи"
+      ],
+      "examples": [
+        {
+          "ru": "фо́то",
+          "vi": "ảnh"
+        },
+        {
+          "ru": "флаг",
+          "vi": "lá cờ"
+        }
+      ]
+    },
+    {
+      "id": "kh",
+      "upper": "Х",
+      "lower": "х",
+      "name_ru": "ха",
+      "kind": "consonant",
+      "sound_sample": "ха",
+      "sound_vi": "Âm xát vòm mềm /x/, gần kh nhưng mạnh hơn h thông thường.",
+      "guide_vi": "Đưa phần sau lưỡi gần vòm mềm, đẩy hơi tạo tiếng xát rõ; tránh đọc thành k.",
+      "blends": [
+        "ха",
+        "хо",
+        "ху"
+      ],
+      "examples": [
+        {
+          "ru": "хлеб",
+          "vi": "bánh mì"
+        },
+        {
+          "ru": "у́хо",
+          "vi": "tai"
+        }
+      ]
+    },
+    {
+      "id": "ts",
+      "upper": "Ц",
+      "lower": "ц",
+      "name_ru": "цэ",
+      "kind": "consonant",
+      "sound_sample": "ца",
+      "sound_vi": "Âm /t͡s/ liền mạch, thường cứng.",
+      "guide_vi": "Bắt đầu gần t và chuyển ngay sang s trong một âm duy nhất; không ngắt giữa t và s.",
+      "blends": [
+        "ца",
+        "це",
+        "ци"
+      ],
+      "examples": [
+        {
+          "ru": "цвет",
+          "vi": "màu sắc"
+        },
+        {
+          "ru": "яйцо́",
+          "vi": "quả trứng"
+        }
+      ]
+    },
+    {
+      "id": "ch",
+      "upper": "Ч",
+      "lower": "ч",
+      "name_ru": "че",
+      "kind": "consonant",
+      "sound_sample": "ча",
+      "sound_vi": "Âm tắc-xát mềm /tɕ/, gần ch.",
+      "guide_vi": "Giữ lưỡi ở vị trí trước tương đối mềm và tạo âm tắc-xát liền mạch, không tách thành hai âm.",
+      "blends": [
+        "ча",
+        "чу",
+        "чи"
+      ],
+      "examples": [
+        {
+          "ru": "чай",
+          "vi": "trà"
+        },
+        {
+          "ru": "час",
+          "vi": "giờ; tiếng đồng hồ"
+        }
+      ]
+    },
+    {
+      "id": "sh",
+      "upper": "Ш",
+      "lower": "ш",
+      "name_ru": "ша",
+      "kind": "consonant",
+      "sound_sample": "ша",
+      "sound_vi": "Âm xát vô thanh /ʂ/, gần sh nhưng lưỡi lùi hơn.",
+      "guide_vi": "Đưa lưỡi lùi về sau và thổi hơi không rung dây thanh. Ш thường là phụ âm cứng.",
+      "blends": [
+        "ша",
+        "шу",
+        "ши"
+      ],
+      "examples": [
+        {
+          "ru": "шар",
+          "vi": "quả bóng"
+        },
+        {
+          "ru": "ша́пка",
+          "vi": "mũ"
+        }
+      ]
+    },
+    {
+      "id": "shch",
+      "upper": "Щ",
+      "lower": "щ",
+      "name_ru": "ща",
+      "kind": "consonant",
+      "sound_sample": "ща",
+      "sound_vi": "Âm xát mềm kéo dài /ɕː/.",
+      "guide_vi": "Đưa lưỡi về phía trước hơn so với ш và kéo dài tiếng xát mềm. Nghe đối chiếu щ với ш.",
+      "blends": [
+        "ща",
+        "щу",
+        "щи"
+      ],
+      "examples": [
+        {
+          "ru": "щи",
+          "vi": "súp bắp cải"
+        },
+        {
+          "ru": "щётка",
+          "vi": "bàn chải"
+        }
+      ]
+    },
+    {
+      "id": "hard_sign",
+      "upper": "Ъ",
+      "lower": "ъ",
+      "name_ru": "твёрдый знак",
+      "kind": "sign",
+      "sound_sample": "объект",
+      "sound_vi": "Dấu cứng: không có âm độc lập.",
+      "guide_vi": "Dấu ъ tách phụ âm cuối tiền tố với các chữ е, ё, ю, я phía sau. Hãy nghe từ mẫu, không phát âm ъ thành một tiếng riêng.",
+      "blends": [
+        {
+          "text": "объе",
+          "tts": "объект"
+        },
+        {
+          "text": "подъе",
+          "tts": "подъезд"
+        }
+      ],
+      "examples": [
+        {
+          "ru": "объе́кт",
+          "vi": "đối tượng; công trình"
+        },
+        {
+          "ru": "подъе́зд",
+          "vi": "lối vào tòa nhà"
+        }
+      ]
+    },
+    {
+      "id": "y",
+      "upper": "Ы",
+      "lower": "ы",
+      "name_ru": "ы",
+      "kind": "vowel",
+      "sound_sample": "мы",
+      "sound_vi": "Âm /ɨ/, không trùng hẳn với i hay ư tiếng Việt.",
+      "guide_vi": "Giữ môi tương đối tự nhiên và lưỡi lùi hơn khi phát âm и. Nghe và luyện đối chiếu мы với ми.",
+      "blends": [
+        "мы",
+        "ты",
+        "сы"
+      ],
+      "examples": [
+        {
+          "ru": "мы",
+          "vi": "chúng tôi; chúng ta"
+        },
+        {
+          "ru": "сыр",
+          "vi": "phô mai"
+        }
+      ]
+    },
+    {
+      "id": "soft_sign",
+      "upper": "Ь",
+      "lower": "ь",
+      "name_ru": "мягкий знак",
+      "kind": "sign",
+      "sound_sample": "конь",
+      "sound_vi": "Dấu mềm: không có âm độc lập.",
+      "guide_vi": "Dấu ь thường cho biết phụ âm đứng trước mềm hơn; cũng có thể giữ chức năng phân tách trong một số từ. Hãy nghe âm ở từ mẫu.",
+      "blends": [
+        {
+          "text": "нь",
+          "tts": "день"
+        },
+        {
+          "text": "ль",
+          "tts": "соль"
+        }
+      ],
+      "examples": [
+        {
+          "ru": "день",
+          "vi": "ngày"
+        },
+        {
+          "ru": "конь",
+          "vi": "ngựa"
+        }
+      ]
+    },
+    {
+      "id": "e_back",
+      "upper": "Э",
+      "lower": "э",
+      "name_ru": "э",
+      "kind": "vowel",
+      "sound_sample": "э́то",
+      "sound_vi": "Âm /e/ mở, không có âm y mở đầu.",
+      "guide_vi": "Môi không tròn; mở miệng vừa phải. Phân biệt э với е ở đầu từ.",
+      "blends": [
+        "э́то",
+        "э́хо"
+      ],
+      "examples": [
+        {
+          "ru": "э́то",
+          "vi": "cái này; đây là"
+        },
+        {
+          "ru": "э́хо",
+          "vi": "tiếng vọng"
+        }
+      ]
+    },
+    {
+      "id": "yu",
+      "upper": "Ю",
+      "lower": "ю",
+      "name_ru": "ю",
+      "kind": "vowel",
+      "sound_sample": "ю́бка",
+      "sound_vi": "Ở đầu từ thường có âm gần /ju/; sau phụ âm thường làm mềm phụ âm.",
+      "guide_vi": "Khi đứng đầu từ, phát âm liên tục yếu tố y rồi u. Sau phụ âm, chú ý âm mềm phía trước.",
+      "blends": [
+        "ю",
+        "лю",
+        "ню"
+      ],
+      "examples": [
+        {
+          "ru": "ю́бка",
+          "vi": "váy"
+        },
+        {
+          "ru": "юла́",
+          "vi": "con quay"
+        }
+      ]
+    },
+    {
+      "id": "ya",
+      "upper": "Я",
+      "lower": "я",
+      "name_ru": "я",
+      "kind": "vowel",
+      "sound_sample": "я́блоко",
+      "sound_vi": "Ở đầu từ thường có âm gần /ja/; sau phụ âm thường làm mềm phụ âm.",
+      "guide_vi": "Ở đầu từ, nghe yếu tố y-a. Sau phụ âm, я thường đánh dấu phụ âm mềm; không phải lúc nào cũng có hai âm riêng.",
+      "blends": [
+        "я",
+        "мя",
+        "ня"
+      ],
+      "examples": [
+        {
+          "ru": "я",
+          "vi": "tôi"
+        },
+        {
+          "ru": "я́блоко",
+          "vi": "quả táo"
+        }
+      ]
+    }
+  ]
+}

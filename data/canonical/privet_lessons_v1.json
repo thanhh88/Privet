@@ -1,0 +1,886 @@
+{
+  "schema_version": "privet_lessons_v1",
+  "scope": "A1 core beginner curriculum",
+  "lessons": [
+    {
+      "lesson_key": "A1-GR-01",
+      "title": "A1.1 — Согласование: прилагательные и местоимения",
+      "lesson_type": "grammar",
+      "display_order": 100,
+      "is_active": true,
+      "audio_url": null,
+      "skill_codes": [
+        "NOM-01",
+        "NOM-02"
+      ],
+      "content": {
+        "objective_vi": "Hòa hợp tính từ, đại từ sở hữu và đại từ chỉ định với danh từ theo giống và số.",
+        "theory": [
+          "Tính từ đổi theo giống/số: новый стол, новая книга, новое окно, новые книги.",
+          "мой/моя/моё/мои và этот/эта/это/эти phải phù hợp với danh từ."
+        ],
+        "examples": [
+          {
+            "ru": "Это новая книга.",
+            "vi": "Đây là một quyển sách mới."
+          },
+          {
+            "ru": "Мои друзья живут в Москве.",
+            "vi": "Bạn của tôi sống ở Moskva."
+          }
+        ],
+        "practice": [
+          {
+            "id": "A1-GR-01-P1",
+            "type": "single_choice",
+            "prompt": "Выберите: Это ___ книга.",
+            "options": [
+              {
+                "key": "A",
+                "text": "новый"
+              },
+              {
+                "key": "B",
+                "text": "новая"
+              },
+              {
+                "key": "C",
+                "text": "новое"
+              }
+            ],
+            "correct_option_key": "B",
+            "feedback_vi": "книга là giống cái nên dùng новая."
+          }
+        ]
+      }
+    },
+    {
+      "lesson_key": "A1-GR-02",
+      "title": "A1.2 — Профессии и согласование сказуемого",
+      "lesson_type": "grammar",
+      "display_order": 110,
+      "is_active": true,
+      "audio_url": null,
+      "skill_codes": [
+        "NOM-03",
+        "NOM-04"
+      ],
+      "content": {
+        "objective_vi": "Giới thiệu nghề nghiệp/vai trò và dùng đúng dạng vị ngữ với chủ ngữ.",
+        "theory": [
+          "Ở hiện tại thường không dùng быть: Он врач. Она студентка.",
+          "Động từ hiện tại hòa hợp theo ngôi/số: он работает, они работают."
+        ],
+        "examples": [
+          {
+            "ru": "Мой отец — инженер.",
+            "vi": "Bố tôi là kỹ sư."
+          },
+          {
+            "ru": "Они учатся в университете.",
+            "vi": "Họ học ở trường đại học."
+          }
+        ],
+        "practice": [
+          {
+            "id": "A1-GR-02-P1",
+            "type": "single_choice",
+            "prompt": "Выберите: Они ___ в офисе.",
+            "options": [
+              {
+                "key": "A",
+                "text": "работает"
+              },
+              {
+                "key": "B",
+                "text": "работают"
+              },
+              {
+                "key": "C",
+                "text": "работаю"
+              }
+            ],
+            "correct_option_key": "B",
+            "feedback_vi": "Они là ngôi 3 số nhiều nên dùng работают."
+          }
+        ]
+      }
+    },
+    {
+      "lesson_key": "A1-GR-03",
+      "title": "A1.3 — Родительный: отсутствие и принадлежность",
+      "lesson_type": "grammar",
+      "display_order": 120,
+      "is_active": true,
+      "audio_url": null,
+      "skill_codes": [
+        "GEN-01",
+        "GEN-02"
+      ],
+      "content": {
+        "objective_vi": "Dùng cách 2 để nói sự vắng mặt và diễn đạt sở hữu với «у».",
+        "theory": [
+          "Sau нет / не было / не будет thường dùng cách 2.",
+          "Sở hữu cơ bản: У меня есть...; phủ định: У меня нет..."
+        ],
+        "examples": [
+          {
+            "ru": "У меня нет времени.",
+            "vi": "Tôi không có thời gian."
+          },
+          {
+            "ru": "У Анны есть сестра.",
+            "vi": "Anna có một chị/em gái."
+          }
+        ],
+        "practice": [
+          {
+            "id": "A1-GR-03-P1",
+            "type": "single_choice",
+            "prompt": "Выберите: У меня нет ___.",
+            "options": [
+              {
+                "key": "A",
+                "text": "машина"
+              },
+              {
+                "key": "B",
+                "text": "машины"
+              },
+              {
+                "key": "C",
+                "text": "машину"
+              }
+            ],
+            "correct_option_key": "B",
+            "feedback_vi": "Sau нет dùng cách 2: машины."
+          }
+        ]
+      }
+    },
+    {
+      "lesson_key": "A1-GR-04",
+      "title": "A1.4 — Количество и числительные",
+      "lesson_type": "grammar",
+      "display_order": 130,
+      "is_active": true,
+      "audio_url": null,
+      "skill_codes": [
+        "GEN-04",
+        "GEN-05"
+      ],
+      "content": {
+        "objective_vi": "Dùng cách 2 sau từ chỉ lượng và số đếm cơ bản.",
+        "theory": [
+          "много/мало/несколько/сколько + родительный.",
+          "2–4 thường đi với cách 2 số ít; từ 5 trở lên thường đi với cách 2 số nhiều."
+        ],
+        "examples": [
+          {
+            "ru": "У меня две сестры.",
+            "vi": "Tôi có hai chị/em gái."
+          },
+          {
+            "ru": "В группе десять студентов.",
+            "vi": "Trong nhóm có mười sinh viên."
+          }
+        ],
+        "practice": [
+          {
+            "id": "A1-GR-04-P1",
+            "type": "single_choice",
+            "prompt": "Выберите: В комнате три ___.",
+            "options": [
+              {
+                "key": "A",
+                "text": "стул"
+              },
+              {
+                "key": "B",
+                "text": "стула"
+              },
+              {
+                "key": "C",
+                "text": "стульев"
+              }
+            ],
+            "correct_option_key": "B",
+            "feedback_vi": "Sau три dùng стула."
+          }
+        ]
+      }
+    },
+    {
+      "lesson_key": "A1-GR-05",
+      "title": "A1.5 — Дательный: адресат и возраст",
+      "lesson_type": "grammar",
+      "display_order": 140,
+      "is_active": true,
+      "audio_url": null,
+      "skill_codes": [
+        "DAT-01",
+        "DAT-02"
+      ],
+      "content": {
+        "objective_vi": "Dùng cách 3 cho người nhận hành động và trong cấu trúc tuổi/trạng thái.",
+        "theory": [
+          "Người nhận sau дать/сказать/написать thường ở cách 3.",
+          "Tuổi: Мне 20 лет. Trạng thái vô nhân xưng: Мне холодно."
+        ],
+        "examples": [
+          {
+            "ru": "Я звоню маме.",
+            "vi": "Tôi gọi điện cho mẹ."
+          },
+          {
+            "ru": "Ей восемнадцать лет.",
+            "vi": "Cô ấy 18 tuổi."
+          }
+        ],
+        "practice": [
+          {
+            "id": "A1-GR-05-P1",
+            "type": "single_choice",
+            "prompt": "Выберите: Я пишу ___.",
+            "options": [
+              {
+                "key": "A",
+                "text": "друг"
+              },
+              {
+                "key": "B",
+                "text": "друга"
+              },
+              {
+                "key": "C",
+                "text": "другу"
+              }
+            ],
+            "correct_option_key": "C",
+            "feedback_vi": "Người nhận ở cách 3: другу."
+          }
+        ]
+      }
+    },
+    {
+      "lesson_key": "A1-GR-06",
+      "title": "A1.6 — К кому? К чему?",
+      "lesson_type": "grammar",
+      "display_order": 150,
+      "is_active": true,
+      "audio_url": null,
+      "skill_codes": [
+        "DAT-03"
+      ],
+      "content": {
+        "objective_vi": "Dùng «к + cách 3» để chỉ hướng tới người hoặc đối tượng.",
+        "theory": [
+          "Mẫu cơ bản: идти/ехать/подойти к + дательный.",
+          "Phân biệt: к врачу (đến chỗ bác sĩ) và в больницу (đến bệnh viện)."
+        ],
+        "examples": [
+          {
+            "ru": "Я иду к врачу.",
+            "vi": "Tôi đi đến bác sĩ."
+          },
+          {
+            "ru": "Мы едем к друзьям.",
+            "vi": "Chúng tôi đi đến chỗ bạn bè."
+          }
+        ],
+        "practice": [
+          {
+            "id": "A1-GR-06-P1",
+            "type": "single_choice",
+            "prompt": "Выберите: Завтра я пойду к ___.",
+            "options": [
+              {
+                "key": "A",
+                "text": "врач"
+              },
+              {
+                "key": "B",
+                "text": "врачу"
+              },
+              {
+                "key": "C",
+                "text": "врача"
+              }
+            ],
+            "correct_option_key": "B",
+            "feedback_vi": "Sau к dùng cách 3: врачу."
+          }
+        ]
+      }
+    },
+    {
+      "lesson_key": "A1-GR-07",
+      "title": "A1.7 — Винительный: прямой объект",
+      "lesson_type": "grammar",
+      "display_order": 160,
+      "is_active": true,
+      "audio_url": null,
+      "skill_codes": [
+        "ACC-01",
+        "ACC-02"
+      ],
+      "content": {
+        "objective_vi": "Dùng cách 4 cho tân ngữ trực tiếp, phân biệt danh từ có/không có sự sống.",
+        "theory": [
+          "Giống cái -а/-я thường đổi thành -у/-ю: книга → книгу.",
+          "Giống đực có sự sống thường có dạng cách 4 giống cách 2: брат → брата."
+        ],
+        "examples": [
+          {
+            "ru": "Я читаю книгу.",
+            "vi": "Tôi đọc một quyển sách."
+          },
+          {
+            "ru": "Она знает моего брата.",
+            "vi": "Cô ấy biết anh/em trai tôi."
+          }
+        ],
+        "practice": [
+          {
+            "id": "A1-GR-07-P1",
+            "type": "single_choice",
+            "prompt": "Выберите: Я вижу ___.",
+            "options": [
+              {
+                "key": "A",
+                "text": "брат"
+              },
+              {
+                "key": "B",
+                "text": "брата"
+              },
+              {
+                "key": "C",
+                "text": "брату"
+              }
+            ],
+            "correct_option_key": "B",
+            "feedback_vi": "брат là danh từ có sự sống giống đực nên dùng брата."
+          }
+        ]
+      }
+    },
+    {
+      "lesson_key": "A1-GR-08",
+      "title": "A1.8 — Куда? В / на + винительный",
+      "lesson_type": "grammar",
+      "display_order": 170,
+      "is_active": true,
+      "audio_url": null,
+      "skill_codes": [
+        "ACC-04"
+      ],
+      "content": {
+        "objective_vi": "Dùng в/на + cách 4 để nói hướng đi đến địa điểm.",
+        "theory": [
+          "куда? → в/на + винительный: в школу, на работу.",
+          "So sánh: иду в школу (куда?) và учусь в школе (где?)."
+        ],
+        "examples": [
+          {
+            "ru": "Я иду в университет.",
+            "vi": "Tôi đi đến trường đại học."
+          },
+          {
+            "ru": "Она идёт в библиотеку.",
+            "vi": "Cô ấy đi đến thư viện."
+          }
+        ],
+        "practice": [
+          {
+            "id": "A1-GR-08-P1",
+            "type": "single_choice",
+            "prompt": "Выберите: Я иду в ___.",
+            "options": [
+              {
+                "key": "A",
+                "text": "школа"
+              },
+              {
+                "key": "B",
+                "text": "школу"
+              },
+              {
+                "key": "C",
+                "text": "школе"
+              }
+            ],
+            "correct_option_key": "B",
+            "feedback_vi": "куда? → в школу."
+          }
+        ]
+      }
+    },
+    {
+      "lesson_key": "A1-GR-09",
+      "title": "A1.9 — Где? Место и географические названия",
+      "lesson_type": "grammar",
+      "display_order": 180,
+      "is_active": true,
+      "audio_url": null,
+      "skill_codes": [
+        "PREP-01",
+        "PREP-03"
+      ],
+      "content": {
+        "objective_vi": "Dùng в/на + cách 6 để nói vị trí và tên địa lý.",
+        "theory": [
+          "где? → в/на + предложный: в школе, на работе.",
+          "Tên địa lý thường đổi dạng: Москва → в Москве, Россия → в России."
+        ],
+        "examples": [
+          {
+            "ru": "Я живу в Москве.",
+            "vi": "Tôi sống ở Moskva."
+          },
+          {
+            "ru": "Она учится в университете.",
+            "vi": "Cô ấy học ở trường đại học."
+          }
+        ],
+        "practice": [
+          {
+            "id": "A1-GR-09-P1",
+            "type": "single_choice",
+            "prompt": "Выберите: Он живёт в ___.",
+            "options": [
+              {
+                "key": "A",
+                "text": "Москва"
+              },
+              {
+                "key": "B",
+                "text": "Москве"
+              },
+              {
+                "key": "C",
+                "text": "Москву"
+              }
+            ],
+            "correct_option_key": "B",
+            "feedback_vi": "где? → в Москве."
+          }
+        ]
+      }
+    },
+    {
+      "lesson_key": "A1-GR-10",
+      "title": "A1.10 — О чём? Время и предложный падеж",
+      "lesson_type": "grammar",
+      "display_order": 190,
+      "is_active": true,
+      "audio_url": null,
+      "skill_codes": [
+        "PREP-02",
+        "PREP-04"
+      ],
+      "content": {
+        "objective_vi": "Dùng о/об + cách 6 để nói về chủ đề và các biểu thức thời gian cơ bản.",
+        "theory": [
+          "о/об + предложный: говорить о работе, думать о семье.",
+          "Tháng/năm/tuần thường dùng в/на + cách 6: в мае, в 2026 году, на этой неделе."
+        ],
+        "examples": [
+          {
+            "ru": "Мы говорим о работе.",
+            "vi": "Chúng tôi nói về công việc."
+          },
+          {
+            "ru": "Экзамен будет в мае.",
+            "vi": "Kỳ thi sẽ diễn ra vào tháng Năm."
+          }
+        ],
+        "practice": [
+          {
+            "id": "A1-GR-10-P1",
+            "type": "single_choice",
+            "prompt": "Выберите: Мы говорим о ___.",
+            "options": [
+              {
+                "key": "A",
+                "text": "учёба"
+              },
+              {
+                "key": "B",
+                "text": "учёбе"
+              },
+              {
+                "key": "C",
+                "text": "учёбу"
+              }
+            ],
+            "correct_option_key": "B",
+            "feedback_vi": "Sau о dùng cách 6: об учёбе."
+          }
+        ]
+      }
+    },
+    {
+      "lesson_key": "A1-GR-11",
+      "title": "A1.11 — Настоящее и прошедшее время",
+      "lesson_type": "grammar",
+      "display_order": 200,
+      "is_active": true,
+      "audio_url": null,
+      "skill_codes": [
+        "VERB-01",
+        "VERB-02"
+      ],
+      "content": {
+        "objective_vi": "Chia động từ cơ bản ở hiện tại theo ngôi/số và quá khứ theo giống/số.",
+        "theory": [
+          "Hiện tại: я читаю, ты читаешь, они читают.",
+          "Quá khứ: он работал, она работала, они работали."
+        ],
+        "examples": [
+          {
+            "ru": "Я изучаю русский язык.",
+            "vi": "Tôi học tiếng Nga."
+          },
+          {
+            "ru": "Вчера Анна работала дома.",
+            "vi": "Hôm qua Anna làm việc ở nhà."
+          }
+        ],
+        "practice": [
+          {
+            "id": "A1-GR-11-P1",
+            "type": "single_choice",
+            "prompt": "Выберите: Мы ___ русский язык.",
+            "options": [
+              {
+                "key": "A",
+                "text": "изучаю"
+              },
+              {
+                "key": "B",
+                "text": "изучаем"
+              },
+              {
+                "key": "C",
+                "text": "изучает"
+              }
+            ],
+            "correct_option_key": "B",
+            "feedback_vi": "мы → изучаем."
+          }
+        ]
+      }
+    },
+    {
+      "lesson_key": "A1-GR-12",
+      "title": "A1.12 — Инфинитив и повелительное наклонение",
+      "lesson_type": "grammar",
+      "display_order": 210,
+      "is_active": true,
+      "audio_url": null,
+      "skill_codes": [
+        "VERB-04"
+      ],
+      "content": {
+        "objective_vi": "Nhận biết nguyên mẫu và dùng mệnh lệnh/yêu cầu cơ bản.",
+        "theory": [
+          "Sau хотеть/мочь/любить thường dùng nguyên mẫu: хочу читать, могу говорить.",
+          "Mệnh lệnh: читай/читайте, скажи/скажите."
+        ],
+        "examples": [
+          {
+            "ru": "Я хочу учить русский язык.",
+            "vi": "Tôi muốn học tiếng Nga."
+          },
+          {
+            "ru": "Откройте книгу, пожалуйста.",
+            "vi": "Xin hãy mở sách."
+          }
+        ],
+        "practice": [
+          {
+            "id": "A1-GR-12-P1",
+            "type": "single_choice",
+            "prompt": "Выберите: Я могу ___ по-русски.",
+            "options": [
+              {
+                "key": "A",
+                "text": "говорю"
+              },
+              {
+                "key": "B",
+                "text": "говорить"
+              },
+              {
+                "key": "C",
+                "text": "говорит"
+              }
+            ],
+            "correct_option_key": "B",
+            "feedback_vi": "Sau могу dùng nguyên mẫu говорить."
+          }
+        ]
+      }
+    },
+    {
+      "lesson_key": "A1-GR-13",
+      "title": "A1.13 — Глаголы движения",
+      "lesson_type": "grammar",
+      "display_order": 220,
+      "is_active": true,
+      "audio_url": null,
+      "skill_codes": [
+        "MOVE-01",
+        "MOVE-02"
+      ],
+      "content": {
+        "objective_vi": "Phân biệt идти/ходить và ехать/ездить theo một hướng hay lặp lại.",
+        "theory": [
+          "идти/ехать: thường một hướng hoặc đang diễn ra.",
+          "ходить/ездить: thường lặp lại, nhiều hướng hoặc đi-về."
+        ],
+        "examples": [
+          {
+            "ru": "Сейчас я иду в университет.",
+            "vi": "Bây giờ tôi đang đi bộ đến trường."
+          },
+          {
+            "ru": "Каждый день он ездит на работу.",
+            "vi": "Mỗi ngày anh ấy đi làm bằng phương tiện."
+          }
+        ],
+        "practice": [
+          {
+            "id": "A1-GR-13-P1",
+            "type": "single_choice",
+            "prompt": "Выберите: Сейчас мы ___ домой пешком.",
+            "options": [
+              {
+                "key": "A",
+                "text": "идём"
+              },
+              {
+                "key": "B",
+                "text": "ходим"
+              },
+              {
+                "key": "C",
+                "text": "ездим"
+              }
+            ],
+            "correct_option_key": "A",
+            "feedback_vi": "Сейчас + một hướng đi bộ → идём."
+          }
+        ]
+      }
+    },
+    {
+      "lesson_key": "A1-VC-01",
+      "title": "A1.14 — Личная информация, семья, учёба и работа",
+      "lesson_type": "vocabulary",
+      "display_order": 230,
+      "is_active": true,
+      "audio_url": null,
+      "skill_codes": [
+        "VOC-01",
+        "VOC-02"
+      ],
+      "content": {
+        "objective_vi": "Nắm từ vựng nền tảng để giới thiệu bản thân, gia đình, học tập và công việc.",
+        "theory": [
+          "Từ trọng tâm: имя, возраст, семья, мать, отец, брат, сестра.",
+          "Từ trọng tâm: учиться, работать, студент, преподаватель, университет, офис."
+        ],
+        "examples": [
+          {
+            "ru": "Меня зовут Анна.",
+            "vi": "Tôi tên là Anna."
+          },
+          {
+            "ru": "Я учусь в университете.",
+            "vi": "Tôi học ở trường đại học."
+          }
+        ],
+        "practice": [
+          {
+            "id": "A1-VC-01-P1",
+            "type": "single_choice",
+            "prompt": "Выберите: Моя мама и мой папа — мои ___.",
+            "options": [
+              {
+                "key": "A",
+                "text": "родители"
+              },
+              {
+                "key": "B",
+                "text": "коллеги"
+              },
+              {
+                "key": "C",
+                "text": "соседи"
+              }
+            ],
+            "correct_option_key": "A",
+            "feedback_vi": "родители = bố mẹ/cha mẹ."
+          }
+        ]
+      }
+    },
+    {
+      "lesson_key": "A1-VC-02",
+      "title": "A1.15 — Дом, город, еда и покупки",
+      "lesson_type": "vocabulary",
+      "display_order": 240,
+      "is_active": true,
+      "audio_url": null,
+      "skill_codes": [
+        "VOC-03",
+        "VOC-04"
+      ],
+      "content": {
+        "objective_vi": "Dùng từ vựng cơ bản về nhà ở, thành phố, thực phẩm và mua sắm.",
+        "theory": [
+          "Từ trọng tâm: дом, квартира, комната, улица, магазин, парк, метро.",
+          "Từ trọng tâm: хлеб, молоко, овощи, цена, покупать."
+        ],
+        "examples": [
+          {
+            "ru": "Я живу в маленькой квартире.",
+            "vi": "Tôi sống trong một căn hộ nhỏ."
+          },
+          {
+            "ru": "Я покупаю хлеб и молоко.",
+            "vi": "Tôi mua bánh mì và sữa."
+          }
+        ],
+        "practice": [
+          {
+            "id": "A1-VC-02-P1",
+            "type": "single_choice",
+            "prompt": "Где обычно покупают продукты?",
+            "options": [
+              {
+                "key": "A",
+                "text": "в магазине"
+              },
+              {
+                "key": "B",
+                "text": "в университете"
+              },
+              {
+                "key": "C",
+                "text": "в автобусе"
+              }
+            ],
+            "correct_option_key": "A",
+            "feedback_vi": "Продукты thường được mua ở магазине."
+          }
+        ]
+      }
+    },
+    {
+      "lesson_key": "A1-VC-03",
+      "title": "A1.16 — Транспорт, путешествия, время и повседневность",
+      "lesson_type": "vocabulary",
+      "display_order": 250,
+      "is_active": true,
+      "audio_url": null,
+      "skill_codes": [
+        "VOC-05",
+        "VOC-06"
+      ],
+      "content": {
+        "objective_vi": "Dùng từ vựng cơ bản về giao thông, du lịch, thiên nhiên, thời gian và sinh hoạt.",
+        "theory": [
+          "Từ trọng tâm: автобус, поезд, самолёт, билет, вокзал, море, лес.",
+          "Từ trọng tâm: утро, вечер, час, голова, рука, вставать, спать."
+        ],
+        "examples": [
+          {
+            "ru": "Я еду на вокзал на автобусе.",
+            "vi": "Tôi đi đến ga bằng xe buýt."
+          },
+          {
+            "ru": "Я встаю в семь часов утра.",
+            "vi": "Tôi dậy lúc bảy giờ sáng."
+          }
+        ],
+        "practice": [
+          {
+            "id": "A1-VC-03-P1",
+            "type": "single_choice",
+            "prompt": "Что нужно купить перед поездкой на поезде?",
+            "options": [
+              {
+                "key": "A",
+                "text": "билет"
+              },
+              {
+                "key": "B",
+                "text": "кровать"
+              },
+              {
+                "key": "C",
+                "text": "урок"
+              }
+            ],
+            "correct_option_key": "A",
+            "feedback_vi": "билет = vé."
+          }
+        ]
+      }
+    },
+    {
+      "lesson_key": "A1-VC-04",
+      "title": "A1.17 — Досуг, общение и технологии",
+      "lesson_type": "vocabulary",
+      "display_order": 260,
+      "is_active": true,
+      "audio_url": null,
+      "skill_codes": [
+        "VOC-07"
+      ],
+      "content": {
+        "objective_vi": "Dùng từ vựng A1 cơ bản để nói về sở thích, liên lạc và công nghệ.",
+        "theory": [
+          "Từ trọng tâm: читать, музыка, фильм, спорт, гулять.",
+          "Từ trọng tâm: телефон, сообщение, интернет, компьютер, звонить, писать."
+        ],
+        "examples": [
+          {
+            "ru": "В свободное время я смотрю фильмы.",
+            "vi": "Trong thời gian rảnh tôi xem phim."
+          },
+          {
+            "ru": "Я часто звоню друзьям.",
+            "vi": "Tôi thường gọi điện cho bạn bè."
+          }
+        ],
+        "practice": [
+          {
+            "id": "A1-VC-04-P1",
+            "type": "single_choice",
+            "prompt": "Что обычно отправляют другу в мессенджере?",
+            "options": [
+              {
+                "key": "A",
+                "text": "сообщение"
+              },
+              {
+                "key": "B",
+                "text": "вокзал"
+              },
+              {
+                "key": "C",
+                "text": "хлеб"
+              }
+            ],
+            "correct_option_key": "A",
+            "feedback_vi": "сообщение = tin nhắn."
+          }
+        ]
+      }
+    }
+  ]
+}

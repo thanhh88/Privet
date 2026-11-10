@@ -1,0 +1,381 @@
+/* =========================
+   PRIVET LOGIN
+   ========================= */
+
+.privet-login-page {
+  min-height: 100vh;
+  min-height: 100svh;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 2rem;
+
+  background:
+    url("../images/landing-winter-background.png")
+    center bottom / cover no-repeat;
+
+  overflow: hidden;
+}
+
+
+/* =========================
+   WRAPPER
+   ========================= */
+
+.login-shell {
+  width: min(92vw, 62rem);
+
+  display: grid;
+  grid-template-columns: 1fr 0.9fr;
+  align-items: center;
+
+  gap: clamp(2rem, 5vw, 5rem);
+}
+
+
+/* =========================
+   LEFT VISUAL
+   ========================= */
+
+.login-visual {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+}
+
+.login-bear {
+  width: min(100%, 28rem);
+  height: auto;
+
+  display: block;
+
+  user-select: none;
+  pointer-events: none;
+}
+
+.login-dolls {
+  position: absolute;
+
+  right: -1rem;
+  bottom: 0;
+
+  width: clamp(7rem, 13vw, 10rem);
+
+  user-select: none;
+  pointer-events: none;
+}
+
+
+/* =========================
+   LOGIN CARD
+   ========================= */
+
+.login-card {
+  width: 100%;
+
+  padding:
+    clamp(2rem, 4vw, 3rem)
+    clamp(1.75rem, 3vw, 2.75rem);
+
+  background: rgba(255, 255, 255, 0.94);
+
+  border: 1px solid rgba(55, 135, 210, 0.15);
+  border-radius: 2rem;
+
+  box-shadow:
+    0 1.25rem 3rem rgba(46, 92, 133, 0.16);
+
+  backdrop-filter: blur(8px);
+}
+
+
+/* =========================
+   BRAND
+   ========================= */
+
+.login-brand {
+  display: inline-block;
+
+  margin-bottom: 1.5rem;
+
+  color: var(--privet-ink);
+
+  font-size: clamp(2.2rem, 4vw, 3.25rem);
+  font-weight: 1000;
+
+  line-height: 1;
+
+  letter-spacing: -0.045em;
+
+  text-decoration: none;
+}
+
+
+/* =========================
+   TITLE
+   ========================= */
+
+.login-title {
+  margin: 0;
+
+  color: var(--privet-ink);
+
+  font-size: clamp(1.75rem, 3vw, 2.4rem);
+  font-weight: 900;
+
+  line-height: 1.15;
+}
+
+.login-subtitle {
+  margin: 0.75rem 0 2rem;
+
+  color: #63788d;
+
+  font-size: 1rem;
+  font-weight: 600;
+
+  line-height: 1.5;
+}
+
+
+/* =========================
+   FORM
+   ========================= */
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+
+  gap: 1.25rem;
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+
+  gap: 0.45rem;
+}
+
+.login-label {
+  color: var(--privet-ink);
+
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+
+/* =========================
+   INPUT
+   ========================= */
+
+.login-input {
+  width: 100%;
+  height: 3.5rem;
+
+  padding: 0 1rem;
+
+  border: 2px solid #d6e7f5;
+  border-radius: 1rem;
+
+  background: #ffffff;
+
+  color: var(--privet-ink);
+
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+
+  outline: none;
+
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.login-input::placeholder {
+  color: #9aafc1;
+}
+
+.login-input:focus {
+  border-color: var(--privet-blue-bright);
+
+  box-shadow:
+    0 0 0 4px rgba(62, 157, 235, 0.12);
+}
+
+
+/* =========================
+   ERROR
+   ========================= */
+
+.login-error {
+  margin: 0;
+
+  color: #d65353;
+
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+
+/* =========================
+   OPTIONS
+   ========================= */
+
+.login-options {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  gap: 1rem;
+
+  font-size: 0.9rem;
+}
+
+.login-remember {
+  display: flex;
+  align-items: center;
+
+  gap: 0.5rem;
+
+  color: #51687d;
+
+  font-weight: 700;
+}
+
+.login-forgot {
+  color: var(--privet-blue-bright);
+
+  font-weight: 800;
+
+  text-decoration: none;
+}
+
+.login-forgot:hover {
+  text-decoration: underline;
+}
+
+
+/* =========================
+   BUTTON
+   ========================= */
+
+.login-submit {
+  width: 100%;
+  min-height: 3.7rem;
+
+  margin-top: 0.5rem;
+
+  border: 0;
+  border-radius: 1.15rem;
+
+  background: var(--privet-blue-bright);
+
+  color: #ffffff;
+
+  font: inherit;
+  font-size: 1.15rem;
+  font-weight: 900;
+
+  cursor: pointer;
+
+  box-shadow:
+    0 0.22rem 0 var(--privet-blue-active);
+
+  transition:
+    transform 0.15s ease,
+    filter 0.15s ease;
+}
+
+.login-submit:hover {
+  filter: brightness(1.04);
+}
+
+.login-submit:active {
+  transform: translateY(2px);
+
+  box-shadow:
+    0 0.08rem 0 var(--privet-blue-active);
+}
+
+
+/* =========================
+   FOOTER
+   ========================= */
+
+.login-footer {
+  margin: 1.5rem 0 0;
+
+  text-align: center;
+
+  color: #63788d;
+
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.login-footer a {
+  color: var(--privet-blue-bright);
+
+  font-weight: 900;
+
+  text-decoration: none;
+}
+
+.login-footer a:hover {
+  text-decoration: underline;
+}
+
+
+/* =========================
+   RESPONSIVE
+   ========================= */
+
+@media (max-width: 899px) {
+
+  .privet-login-page {
+    padding: 1.5rem;
+  }
+
+  .login-shell {
+    width: min(100%, 31rem);
+
+    grid-template-columns: 1fr;
+
+    gap: 1.25rem;
+  }
+
+  .login-visual {
+    display: none;
+  }
+
+  .login-card {
+    padding: 2rem 1.5rem;
+  }
+}
+
+
+@media (max-width: 420px) {
+
+  .privet-login-page {
+    padding: 1rem;
+  }
+
+  .login-card {
+    border-radius: 1.5rem;
+
+    padding: 1.75rem 1.25rem;
+  }
+
+  .login-options {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .login-title {
+    font-size: 1.75rem;
+  }
+}

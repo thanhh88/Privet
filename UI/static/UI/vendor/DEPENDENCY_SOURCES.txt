@@ -1,0 +1,32 @@
+Privet UI vendored dependency sources
+Retrieved (UTC): 2026-10-19T19:11:31.489242+00:00
+
+Bootstrap 5.3.8 CSS; upstream minified distribution, unmodified.
+Official documentation: https://getbootstrap.com/docs/5.3/getting-started/download/
+Bootstrap CSS SRI verified against official documentation: sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB
+
+Nunito normal variable font; upstream TTF, unmodified.
+Google Fonts repository revision: 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5
+Variable weight axis: 200-1000 (font default: 200; specify desired CSS weight). Weights 700 and 800 are supported within this axis.
+Verified all 66 uppercase/lowercase Russian letters including Ё/ё; all 144 uppercase/lowercase Vietnamese vowel-and-tone combinations (NFC), ASCII letters and Đ/đ. The Vietnamese test set contains 186 distinct characters.
+No font subsetting. Glyph count: 1103
+
+bootstrap_css: https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css
+SHA-256: d85327d99c7a3ee1f9b5d0500d1370acea3ad2db39c163c2f51f232baedbdede
+Bytes: 232111
+
+bootstrap_license: https://raw.githubusercontent.com/twbs/bootstrap/v5.3.8/LICENSE
+SHA-256: 4620c84ad5ce8602ff65640ed6b7c8b78ebb9e036584f0ebc1ccc88206a4bb51
+Bytes: 1093
+
+nunito_font: https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/nunito/Nunito%5Bwght%5D.ttf
+SHA-256: bb55a5ca5c2042335b3991af27c4d0705d0ef41cac6164ac737fd8f2a1e85207
+Bytes: 276932
+
+nunito_license: https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/nunito/OFL.txt
+SHA-256: 580df76c95a1ec5ab878ceb25bb3d85c6a076804e9c970c8c6972aea775fdf65
+Bytes: 4385
+
+nunito_metadata: https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/nunito/METADATA.pb
+SHA-256: 3e20743c7ddab54c6ac57d79a6be522d4bae795223855ce90a1b13c4132f0754
+Bytes: 1306

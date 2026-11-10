@@ -1,0 +1,312 @@
+{% extends "UI/base.html" %}
+{% load static %}
+
+{% block body_class %}
+privet-test-hub-page
+{% endblock %}
+
+
+{% block page_styles %}
+<link
+  rel="stylesheet"
+  href="{% static 'UI/css/tests.css' %}"
+>
+{% endblock %}
+
+
+{% block content %}
+
+<div class="test-page">
+
+
+  <!-- =====================================================
+       HEADER
+       ===================================================== -->
+
+  <header class="test-header">
+
+    <a
+      href="{% url 'UI:dashboard' %}"
+      class="test-brand"
+    >
+
+      <img
+        src="{% static 'UI/images/privet-bear-logo.png' %}"
+        class="test-brand-logo"
+        alt=""
+        draggable="false"
+      >
+
+      <span>
+        Privet
+      </span>
+
+    </a>
+
+
+    <nav
+      class="test-nav"
+      aria-label="Điều hướng chính"
+    >
+
+      <a
+        href="{% url 'UI:dashboard' %}"
+        class="test-nav-link"
+      >
+        Trang chủ
+      </a>
+
+
+      <a
+        href="{% url 'UI:lessons' %}"
+        class="test-nav-link"
+      >
+        Bài học
+      </a>
+
+
+      <a
+        href="{% url 'UI:test_hub' %}"
+        class="test-nav-link is-active"
+      >
+        Bài test
+      </a>
+
+
+      <a
+        href="{% url 'UI:progress' %}"
+        class="test-nav-link"
+      >
+        Tiến độ
+      </a>
+
+    </nav>
+
+
+    <div class="test-user">
+
+      <span
+        class="test-notification-dot"
+        aria-hidden="true"
+      ></span>
+
+
+      <div
+        class="test-avatar"
+        title="{{ display_name }}"
+      >
+        {{ display_name|slice:":1"|upper }}
+      </div>
+
+    </div>
+
+  </header>
+
+
+
+  <!-- =====================================================
+       MAIN
+       ===================================================== -->
+
+  <main class="test-hub-main">
+
+
+    {% if submitted_demo %}
+
+      <div
+        class="test-flash"
+        role="status"
+      >
+        Bài kiểm tra demo đã được nộp.
+      </div>
+
+    {% endif %}
+
+
+    <!-- PAGE HEADING -->
+
+    <section class="test-page-heading">
+
+      <div>
+
+        <p class="test-eyebrow">
+          PRIVET TEST
+        </p>
+
+        <h1>
+          Bài kiểm tra cá nhân hóa
+        </h1>
+
+        <p>
+          Hệ thống tự chọn 10 câu phù hợp
+          dựa trên lịch sử học của bạn.
+        </p>
+
+      </div>
+
+    </section>
+
+
+
+    <!-- TOP CARDS -->
+
+    <section class="test-action-grid">
+
+
+      <!-- START TEST -->
+
+      <article class="test-card test-start-card">
+
+        <div class="test-start-copy">
+
+          <span class="test-card-icon">
+            10
+          </span>
+
+
+          <div>
+
+            <p class="test-card-label">
+              BÀI KIỂM TRA MỚI
+            </p>
+
+            <h2>
+              Sẵn sàng kiểm tra?
+            </h2>
+
+            <p>
+              Bạn không cần chọn chủ đề hoặc trình độ.
+              Privet sẽ tạo 10 câu cân bằng giữa
+              Ngữ pháp và Từ vựng.
+            </p>
+
+          </div>
+
+        </div>
+
+
+        <a
+          href="{% url 'UI:test_doing' %}?q=1"
+          class="test-primary-button"
+        >
+          Bắt đầu bài kiểm tra
+        </a>
+
+      </article>
+
+
+
+      <!-- HISTORY -->
+
+      <article class="test-card test-history-card">
+
+        <div>
+
+          <p class="test-card-label">
+            LỊCH SỬ
+          </p>
+
+          <h2>
+            {{ completed_test_count }}
+            bài đã hoàn thành
+          </h2>
+
+          <p>
+            Xem lại điểm số và các bài kiểm tra gần đây.
+          </p>
+
+        </div>
+
+
+        <a
+          href="{% url 'UI:test_history' %}"
+          class="test-secondary-button"
+        >
+          Xem lịch sử
+        </a>
+
+      </article>
+
+    </section>
+
+
+
+    <!-- RECENT TESTS -->
+
+    <section
+      class="test-card recent-tests-card"
+      id="recent-tests"
+    >
+
+      <header class="recent-tests-heading">
+
+        <div>
+
+          <p class="test-card-label">
+            GẦN ĐÂY
+          </p>
+
+          <h2>
+            Kết quả gần nhất
+          </h2>
+
+        </div>
+
+
+        <span>
+          Mới nhất trước
+        </span>
+
+      </header>
+
+
+      <div class="recent-test-list">
+
+        {% for item in recent_tests %}
+
+          <article class="recent-test-row">
+
+            <time>
+              {{ item.date }}
+            </time>
+
+
+            <strong>
+              {{ item.score }}/{{ item.total }}
+            </strong>
+
+
+            <span>
+              {{ item.duration }}
+            </span>
+
+
+            <a
+              href="{% url 'UI:test_history' %}?test={{ item.id }}"
+              aria-label="Xem chi tiết bài test ngày {{ item.date }}"
+            >
+              Xem chi tiết
+              <span aria-hidden="true">→</span>
+            </a>
+
+          </article>
+
+        {% empty %}
+
+          <div class="test-empty-history">
+
+            Chưa có bài kiểm tra đã hoàn thành.
+
+          </div>
+
+        {% endfor %}
+
+      </div>
+
+    </section>
+
+  </main>
+
+</div>
+
+{% endblock %}

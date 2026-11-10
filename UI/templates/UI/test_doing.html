@@ -1,0 +1,441 @@
+{% extends "UI/base.html" %}
+{% load static %}
+
+{% block body_class %}
+privet-test-doing-page
+{% endblock %}
+
+
+{% block page_styles %}
+<link
+  rel="stylesheet"
+  href="{% static 'UI/css/tests.css' %}"
+>
+{% endblock %}
+
+
+{% block content %}
+
+<div class="test-page">
+
+
+  <!-- =====================================================
+       HEADER
+       ===================================================== -->
+
+  <header class="test-header">
+
+    <a
+      href="{% url 'UI:dashboard' %}"
+      class="test-brand"
+    >
+
+      <img
+        src="{% static 'UI/images/privet-bear-logo.png' %}"
+        class="test-brand-logo"
+        alt=""
+        draggable="false"
+      >
+
+      <span>
+        Privet
+      </span>
+
+    </a>
+
+
+    <nav
+      class="test-nav"
+      aria-label="Điều hướng chính"
+    >
+
+      <a
+        href="{% url 'UI:dashboard' %}"
+        class="test-nav-link"
+      >
+        Trang chủ
+      </a>
+
+
+      <a
+        href="{% url 'UI:lessons' %}"
+        class="test-nav-link"
+      >
+        Bài học
+      </a>
+
+
+      <a
+        href="{% url 'UI:test_hub' %}"
+        class="test-nav-link is-active"
+      >
+        Bài test
+      </a>
+
+
+      <a
+        href="{% url 'UI:progress' %}"
+        class="test-nav-link"
+      >
+        Tiến độ
+      </a>
+
+    </nav>
+
+
+    <div class="test-user">
+
+      <span
+        class="test-notification-dot"
+        aria-hidden="true"
+      ></span>
+
+
+      <div
+        class="test-avatar"
+        title="{{ display_name }}"
+      >
+        {{ display_name|slice:":1"|upper }}
+      </div>
+
+    </div>
+
+  </header>
+
+
+
+  <!-- =====================================================
+       MAIN
+       ===================================================== -->
+
+  <main class="test-doing-main">
+
+
+    <!-- HEADING -->
+
+    <section class="test-doing-heading">
+
+      <div>
+
+        <p class="test-eyebrow">
+          BÀI KIỂM TRA CÁ NHÂN HÓA
+        </p>
+
+        <h1>
+          Câu {{ question_number }}
+          /
+          {{ question_total }}
+        </h1>
+
+      </div>
+
+
+      <a
+        href="{% url 'UI:test_hub' %}"
+        class="test-exit-link"
+      >
+        Thoát bài test
+      </a>
+
+    </section>
+
+
+
+    <!-- TEST CONTENT -->
+
+    <section class="test-doing-layout">
+
+
+      <!-- QUESTION -->
+
+      <article class="question-card">
+
+        <span class="question-instruction">
+          {{ question.instruction }}
+        </span>
+
+
+        <h2>
+          {{ question.question }}
+        </h2>
+
+
+        {% if question.translation %}
+
+          <p class="question-translation">
+            {{ question.translation }}
+          </p>
+
+        {% endif %}
+
+
+        <form class="question-options">
+
+          {% for option in question.options %}
+
+            <label class="question-option">
+
+              <input
+                type="radio"
+                name="answer"
+                value="{{ option.key }}"
+              >
+
+
+              <span class="option-key">
+                {{ option.key }}
+              </span>
+
+
+              <span class="option-text">
+                {{ option.text }}
+              </span>
+
+            </label>
+
+          {% endfor %}
+
+        </form>
+
+      </article>
+
+
+
+      <!-- QUESTION GRID -->
+
+      <aside class="test-grid-card">
+
+        <p class="test-card-label">
+          10 CÂU
+        </p>
+
+
+        <strong class="answered-count">
+          Đã trả lời
+          {{ answered_count }}/{{ question_total }}
+        </strong>
+
+
+        <div class="test-question-grid">
+
+          {% for item in question_grid %}
+
+            <a
+              href="{% url 'UI:test_doing' %}?q={{ item.number }}"
+              class="
+                test-grid-link
+                {% if item.answered %}is-answered{% endif %}
+                {% if item.current %}is-current{% endif %}
+              "
+            >
+              {{ item.number }}
+            </a>
+
+          {% endfor %}
+
+        </div>
+
+
+        <div class="test-grid-legend">
+
+          <span>
+            <i class="is-answered"></i>
+            Đã chọn
+          </span>
+
+          <span>
+            <i></i>
+            Chưa chọn
+          </span>
+
+        </div>
+
+      </aside>
+
+    </section>
+
+
+
+    <!-- CONTROLS -->
+
+    <nav
+      class="test-controls"
+      aria-label="Điều hướng câu hỏi"
+    >
+
+      <div>
+
+        {% if previous_number %}
+
+          <a
+            href="{% url 'UI:test_doing' %}?q={{ previous_number }}"
+            class="test-control-button"
+          >
+            ← Câu trước
+          </a>
+
+        {% else %}
+
+          <span
+            class="test-control-button is-disabled"
+            aria-disabled="true"
+          >
+            ← Câu trước
+          </span>
+
+        {% endif %}
+
+      </div>
+
+
+      <button
+        type="button"
+        class="test-submit-button"
+        data-submit-open
+      >
+        Nộp bài
+      </button>
+
+
+      <div>
+
+        {% if next_number %}
+
+          <a
+            href="{% url 'UI:test_doing' %}?q={{ next_number }}"
+            class="test-next-button"
+          >
+            Câu tiếp →
+          </a>
+
+        {% else %}
+
+          <button
+            type="button"
+            class="test-next-button"
+            data-submit-open
+          >
+            Nộp bài →
+          </button>
+
+        {% endif %}
+
+      </div>
+
+    </nav>
+
+  </main>
+
+
+
+  <!-- =====================================================
+       SUBMIT CONFIRM
+       ===================================================== -->
+
+  <dialog
+    class="test-submit-dialog"
+    data-submit-dialog
+  >
+
+    <form method="dialog">
+
+      <button
+        type="submit"
+        class="dialog-close"
+        aria-label="Đóng"
+      >
+        ×
+      </button>
+
+    </form>
+
+
+    <p class="test-card-label">
+      XÁC NHẬN
+    </p>
+
+
+    <h2>
+      Nộp bài kiểm tra?
+    </h2>
+
+
+    <p>
+      Bạn còn
+      <strong>
+        {{ unanswered_numbers|length }}
+      </strong>
+      câu chưa trả lời:
+    </p>
+
+
+    <div class="unanswered-list">
+
+      {% for number in unanswered_numbers %}
+
+        <span>
+          {{ number }}
+        </span>
+
+      {% endfor %}
+
+    </div>
+
+
+    <p class="dialog-note">
+      Câu chưa trả lời vẫn làm giảm điểm hiển thị.
+      Sau khi nộp, bài chỉ có thể xem lại trong lịch sử.
+    </p>
+
+
+    <div class="dialog-actions">
+
+      <form method="dialog">
+
+        <button
+          type="submit"
+          class="test-secondary-button"
+        >
+          Quay lại làm tiếp
+        </button>
+
+      </form>
+
+
+      <a
+        href="{% url 'UI:test_hub' %}?submitted=1"
+        class="test-primary-button"
+      >
+        Xác nhận nộp bài
+      </a>
+
+    </div>
+
+  </dialog>
+
+</div>
+
+
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const dialog = document.querySelector(
+      "[data-submit-dialog]"
+    );
+
+    const openButtons = document.querySelectorAll(
+      "[data-submit-open]"
+    );
+
+    if (!dialog) {
+      return;
+    }
+
+    openButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        dialog.showModal();
+      });
+    });
+  });
+</script>
+
+{% endblock %}

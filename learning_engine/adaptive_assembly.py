@@ -10,6 +10,11 @@ TARGET_QUESTION_COUNT = 10
 TARGET_DISTINCT_SKILLS = 5
 PREFERRED_MAX_PER_SKILL = 2
 
+ADAPTIVE_SELECTION_REASONS = {
+    "normal",
+    "review",
+}
+
 
 @dataclass(frozen=True)
 class AssemblySkillCandidate:
@@ -17,32 +22,54 @@ class AssemblySkillCandidate:
     Pure input for adaptive assessment assembly.
 
     ranked_question_ids must already follow the
-    canonical 9D.9 Question ranking for this Skill:
+    appropriate upstream Question-ranking policy:
 
-        primary
-        -> unseen
-        -> difficulty distance
-        -> source_id
-        -> question_id
+    - normal adaptive Skill:
+        canonical normal ranking;
+    - guaranteed D2 review Skill:
+        D2 review-specific ranking.
 
-    Question IDs may legitimately appear in more
-    than one Skill candidate because one Question
-    may map to multiple Skills.
+    The pure planner does not re-rank Questions.
+
+    selection_reason describes why Questions selected
+    through this Skill candidate enter the assessment.
+
+    seen_before_question_ids is a frozen snapshot of
+    Questions that had genuinely been viewed by the
+    learner before this assessment was assembled.
+
+    Question IDs may legitimately appear in more than
+    one Skill candidate because one Question may map to
+    multiple Skills.
     """
 
     skill_id: int
     skill_code: str
     priority_score: Decimal
+
     ranked_question_ids: tuple[int, ...]
+
+    # Preparation owns portfolio ordering. When set,
+    # selection_rank overrides raw priority ordering.
+    selection_rank: int | None = None
+
+    # C3 historical planner metadata.
+    selection_reason: str = "normal"
+    seen_before_question_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
 class AdaptiveAssessmentPlanSlot:
     """
-    One planned assessment slot.
+    One planned adaptive-assessment slot.
 
     focus_skill_* describes WHY this Question was
     selected into the assessment.
+
+    selection_reason and was_seen_before are frozen at
+    planning time and are later persisted directly onto
+    SessionQuestion. They must not be recalculated by
+    the persistence layer.
 
     A multi-skill Question may later provide mastery
     evidence to several Skills through its immutable
@@ -67,6 +94,10 @@ class AdaptiveAssessmentPlanSlot:
     # Skill including the current slot.
     occurrence_for_skill: int
 
+    # C3 frozen audit metadata.
+    selection_reason: str
+    was_seen_before: bool
+
 
 def _validate_positive_int(
     *,
@@ -89,6 +120,11 @@ def _normalize_priority_score(
     priority = Decimal(
         str(value)
     )
+
+    if not priority.is_finite():
+        raise ValueError(
+            "priority_score must be finite."
+        )
 
     if not (
         Decimal("0")
@@ -154,9 +190,95 @@ def _validate_skill_candidate(
             "duplicates within one Skill."
         )
 
+    if candidate.selection_rank is not None:
+        _validate_positive_int(
+            value=candidate.selection_rank,
+            field_name="selection_rank",
+        )
+
+    if (
+        not isinstance(
+            candidate.selection_reason,
+            str,
+        )
+        or candidate.selection_reason
+        not in ADAPTIVE_SELECTION_REASONS
+    ):
+        raise ValueError(
+            "selection_reason must be 'normal' "
+            "or 'review'."
+        )
+
+    seen_before_question_ids = tuple(
+        candidate.seen_before_question_ids
+    )
+
+    for question_id in seen_before_question_ids:
+        _validate_positive_int(
+            value=question_id,
+            field_name=(
+                "seen_before_question_id"
+            ),
+        )
+
+    if len(
+        seen_before_question_ids
+    ) != len(
+        set(
+            seen_before_question_ids
+        )
+    ):
+        raise ValueError(
+            "seen_before_question_ids must not "
+            "contain duplicates."
+        )
+
+    if not set(
+        seen_before_question_ids
+    ).issubset(
+        set(question_ids)
+    ):
+        raise ValueError(
+            "seen_before_question_ids must be a "
+            "subset of ranked_question_ids."
+        )
+
     return (
         priority,
         question_ids,
+        frozenset(
+            seen_before_question_ids
+        ),
+    )
+
+
+def _candidate_sort_key(
+    *,
+    candidate,
+    priority,
+):
+    """
+    Preserve preparation-owned portfolio order when a
+    selection_rank is available.
+
+    Legacy / direct pure-planner callers that do not
+    provide selection_rank retain the canonical raw
+    priority ordering, with stable skill_id fallback.
+    """
+
+    if candidate.selection_rank is not None:
+        return (
+            0,
+            candidate.selection_rank,
+            candidate.skill_code.strip(),
+            candidate.skill_id,
+        )
+
+    return (
+        1,
+        0,
+        -priority,
+        candidate.skill_id,
     )
 
 
@@ -202,21 +324,22 @@ def plan_adaptive_assessment(
     """
     Build a deterministic adaptive-assessment plan.
 
-    Canonical policy
-    ----------------
-
-    Hard rules:
+    Hard rules
+    ----------
     - target_question_count unique Questions;
     - no duplicate Question inside the assessment;
     - insufficient global Question availability fails.
 
-    Diversity phase:
+    Diversity phase
+    ---------------
     - first try to introduce target_distinct_skills
       distinct focus Skills;
-    - unseen focus Skills are chosen by canonical
-      Skill Priority order.
+    - candidate ordering is taken from selection_rank
+      when preparation supplied it;
+    - otherwise canonical raw priority ordering is used.
 
-    Fill phase:
+    Fill phase
+    ----------
     1. prefer Skills below preferred_max_per_skill
        and different from the previous Skill;
     2. then any Skill below the preferred cap;
@@ -225,13 +348,16 @@ def plan_adaptive_assessment(
     4. finally allow the same Skill consecutively
        when no alternative remains.
 
-    Skill order:
-        priority_score DESC
-        skill_code ASC
-        skill_id ASC
-
     Within each Skill, ranked_question_ids order is
-    preserved exactly.
+    preserved exactly. The planner does not know or
+    re-run normal/review Question ranking.
+
+    C3 audit metadata
+    -----------------
+    - selection_reason is copied from the chosen
+      AssemblySkillCandidate;
+    - was_seen_before is snapshotted by membership in
+      candidate.seen_before_question_ids.
 
     No randomness is used.
     """
@@ -265,13 +391,13 @@ def plan_adaptive_assessment(
     )
 
     normalized = []
-
     skill_ids = []
 
     for candidate in raw_candidates:
         (
             priority,
             question_ids,
+            seen_before_question_ids,
         ) = _validate_skill_candidate(
             candidate
         )
@@ -285,6 +411,7 @@ def plan_adaptive_assessment(
                 candidate,
                 priority,
                 question_ids,
+                seen_before_question_ids,
             )
         )
 
@@ -298,12 +425,15 @@ def plan_adaptive_assessment(
             "duplicate skill_id values."
         )
 
-    # Canonical Skill Priority order.
+    # Preparation-owned selection_rank wins when
+    # present. Direct pure-planner callers without it
+    # retain canonical priority ordering.
     normalized.sort(
         key=lambda row: (
-            -row[1],
-            row[0].skill_code.strip(),
-            row[0].skill_id,
+            _candidate_sort_key(
+                candidate=row[0],
+                priority=row[1],
+            )
         )
     )
 
@@ -317,6 +447,7 @@ def plan_adaptive_assessment(
         _candidate,
         _priority,
         question_ids,
+        _seen_before_question_ids,
     ) in normalized:
         all_question_ids.update(
             question_ids
@@ -339,11 +470,11 @@ def plan_adaptive_assessment(
             candidate,
             _priority,
             _question_ids,
+            _seen_before_question_ids,
         ) in normalized
     }
 
     slots = []
-
     previous_skill_id = None
 
     # -----------------------------------------
@@ -357,6 +488,7 @@ def plan_adaptive_assessment(
             candidate,
             priority,
             question_ids,
+            seen_before_question_ids,
         ) in normalized:
             next_question = (
                 _next_available_question(
@@ -381,6 +513,7 @@ def plan_adaptive_assessment(
                     priority,
                     question_id,
                     question_rank,
+                    seen_before_question_ids,
                 )
             )
 
@@ -396,8 +529,7 @@ def plan_adaptive_assessment(
         chosen = None
 
         # =====================================
-        # Phase A:
-        # diversity pass
+        # Phase A: diversity pass
         # =====================================
 
         if (
@@ -414,15 +546,14 @@ def plan_adaptive_assessment(
             ]
 
             if unused_skill_options:
-                # `available` already follows
-                # canonical priority order.
+                # `available` already follows the
+                # prepared / canonical Skill order.
                 chosen = (
                     unused_skill_options[0]
                 )
 
         # =====================================
-        # Phase B:
-        # priority fill
+        # Phase B: balanced fill
         # =====================================
 
         if chosen is None:
@@ -460,24 +591,15 @@ def plan_adaptive_assessment(
             ]
 
             if preferred_non_adjacent:
-                chosen = (
-                    preferred_non_adjacent[0]
-                )
+                chosen = preferred_non_adjacent[0]
 
             elif preferred_any:
-                chosen = (
-                    preferred_any[0]
-                )
+                chosen = preferred_any[0]
 
             elif relaxed_non_adjacent:
-                chosen = (
-                    relaxed_non_adjacent[0]
-                )
+                chosen = relaxed_non_adjacent[0]
 
             else:
-                # Only the previous Skill remains
-                # viable. Adjacent repetition is
-                # therefore allowed.
                 chosen = available[0]
 
         (
@@ -485,44 +607,52 @@ def plan_adaptive_assessment(
             priority,
             question_id,
             question_rank,
+            seen_before_question_ids,
         ) = chosen
-
-        skill_counts[
-            candidate.skill_id
-        ] += 1
-
-        used_skill_ids.add(
-            candidate.skill_id
-        )
 
         used_question_ids.add(
             question_id
         )
 
+        used_skill_ids.add(
+            candidate.skill_id
+        )
+
+        skill_counts[
+            candidate.skill_id
+        ] += 1
+
+        occurrence_for_skill = (
+            skill_counts[
+                candidate.skill_id
+            ]
+        )
+
         slots.append(
             AdaptiveAssessmentPlanSlot(
-                slot_number=len(slots) + 1,
-
+                slot_number=(
+                    len(slots) + 1
+                ),
                 focus_skill_id=(
                     candidate.skill_id
                 ),
-
                 focus_skill_code=(
                     candidate.skill_code.strip()
                 ),
-
                 priority_score=priority,
-
                 question_id=question_id,
-
                 question_rank_within_skill=(
                     question_rank
                 ),
-
                 occurrence_for_skill=(
-                    skill_counts[
-                        candidate.skill_id
-                    ]
+                    occurrence_for_skill
+                ),
+                selection_reason=(
+                    candidate.selection_reason
+                ),
+                was_seen_before=(
+                    question_id
+                    in seen_before_question_ids
                 ),
             )
         )

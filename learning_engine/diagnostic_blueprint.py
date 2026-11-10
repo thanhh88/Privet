@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 
-DIAGNOSTIC_RULE_VERSION = "diagnostic_v1"
+DIAGNOSTIC_RULE_VERSION = "diagnostic_v2"
 
 DIAGNOSTIC_TARGET_QUESTION_COUNT = 15
 
@@ -36,7 +36,7 @@ class DiagnosticBlueprintSlot:
 
 DIAGNOSTIC_BLUEPRINT_V1 = (
     # =========================================
-    # Round 1
+    # Round 1 — easy target
     # =========================================
 
     DiagnosticBlueprintSlot(
@@ -61,7 +61,7 @@ DIAGNOSTIC_BLUEPRINT_V1 = (
         slot_number=3,
         round_number=1,
         anchor_order=3,
-        skill_code="VOC-01",
+        skill_code="NOM-02",
         cefr_level="A1",
         target_difficulty=Decimal("0.2500"),
     ),
@@ -79,13 +79,13 @@ DIAGNOSTIC_BLUEPRINT_V1 = (
         slot_number=5,
         round_number=1,
         anchor_order=5,
-        skill_code="VOC-10",
+        skill_code="SENT-01",
         cefr_level="A2",
-        target_difficulty=Decimal("0.5000"),
+        target_difficulty=Decimal("0.2500"),
     ),
 
     # =========================================
-    # Round 2
+    # Round 2 — medium target
     # =========================================
 
     DiagnosticBlueprintSlot(
@@ -110,9 +110,9 @@ DIAGNOSTIC_BLUEPRINT_V1 = (
         slot_number=8,
         round_number=2,
         anchor_order=3,
-        skill_code="VOC-01",
+        skill_code="NOM-02",
         cefr_level="A1",
-        target_difficulty=Decimal("0.2500"),
+        target_difficulty=Decimal("0.5000"),
     ),
 
     DiagnosticBlueprintSlot(
@@ -128,13 +128,13 @@ DIAGNOSTIC_BLUEPRINT_V1 = (
         slot_number=10,
         round_number=2,
         anchor_order=5,
-        skill_code="VOC-10",
+        skill_code="SENT-01",
         cefr_level="A2",
         target_difficulty=Decimal("0.5000"),
     ),
 
     # =========================================
-    # Round 3
+    # Round 3 — hard target
     # =========================================
 
     DiagnosticBlueprintSlot(
@@ -159,9 +159,9 @@ DIAGNOSTIC_BLUEPRINT_V1 = (
         slot_number=13,
         round_number=3,
         anchor_order=3,
-        skill_code="VOC-01",
+        skill_code="NOM-02",
         cefr_level="A1",
-        target_difficulty=Decimal("0.2500"),
+        target_difficulty=Decimal("0.7500"),
     ),
 
     DiagnosticBlueprintSlot(
@@ -177,9 +177,9 @@ DIAGNOSTIC_BLUEPRINT_V1 = (
         slot_number=15,
         round_number=3,
         anchor_order=5,
-        skill_code="VOC-10",
+        skill_code="SENT-01",
         cefr_level="A2",
-        target_difficulty=Decimal("0.5000"),
+        target_difficulty=Decimal("0.7500"),
     ),
 )
 
@@ -338,9 +338,9 @@ def validate_diagnostic_blueprint(
                 f"must appear exactly three times."
             )
 
-    # -----------------------------------------
+    # =========================================
     # CEFR consistency across anchors
-    # -----------------------------------------
+    # =========================================
 
     cefr_by_skill = {}
 
@@ -384,8 +384,14 @@ def validate_diagnostic_blueprint(
             "two A2 anchors."
         )
 
-    # Each round must contain all five anchors
-    # exactly once and in the same pedagogical order.
+    # =========================================
+    # Round consistency
+    #
+    # Every round must contain all five anchors
+    # exactly once and in the same pedagogical
+    # order.
+    # =========================================
+
     expected_anchor_order = tuple(
         anchor_skill_codes
     )

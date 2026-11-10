@@ -1,0 +1,271 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  >
+
+  <title>Đăng nhập | Privet</title>
+
+  <link
+    rel="stylesheet"
+    href="{% static 'UI/vendor/bootstrap/bootstrap.min.css' %}"
+  >
+
+  <link
+    rel="stylesheet"
+    href="{% static 'UI/css/tokens.css' %}"
+  >
+
+  <link
+    rel="stylesheet"
+    href="{% static 'UI/css/login.css' %}"
+  >
+</head>
+
+<body>
+
+  <main class="privet-login-page">
+
+    <div class="login-shell">
+
+      <!-- =========================
+           LEFT ILLUSTRATION
+           ========================= -->
+      <section
+        class="login-visual"
+        aria-hidden="true"
+      >
+
+        <img
+          src="{% static 'UI/images/mascot-bear.png' %}"
+          class="login-bear"
+          alt=""
+          draggable="false"
+        >
+
+        <img
+          src="{% static 'UI/images/matryoshka-pair.png' %}"
+          class="login-dolls"
+          alt=""
+          draggable="false"
+        >
+
+      </section>
+
+
+      <!-- =========================
+           LOGIN CARD
+           ========================= -->
+      <section class="login-card">
+
+        <!-- BRAND -->
+        <a
+          href="{% url 'UI:landing' %}"
+          class="login-brand"
+        >
+          Privet
+        </a>
+
+
+        <!-- HEADING -->
+        <div class="login-heading">
+
+          <h1 class="login-title">
+            Đăng nhập
+          </h1>
+
+          <p class="login-subtitle">
+            Tiếp tục hành trình học tiếng Nga của bạn
+          </p>
+
+        </div>
+
+
+        <!-- =========================
+             GLOBAL FORM ERRORS
+             ========================= -->
+
+        {% if form.non_field_errors %}
+          <div
+            class="login-form-errors"
+            role="alert"
+          >
+            {% for error in form.non_field_errors %}
+              <p class="login-error">
+                {{ error }}
+              </p>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+
+        <!-- =========================
+             LOGIN FORM
+             ========================= -->
+
+        <form
+          method="post"
+          class="login-form"
+          novalidate
+        >
+
+          {% csrf_token %}
+
+
+          <!-- EMAIL -->
+          <div class="login-field">
+
+            <label
+              for="id_username"
+              class="login-label"
+            >
+              Email
+            </label>
+
+            <input
+              type="email"
+              name="username"
+              id="id_username"
+
+              class="login-input{% if form.username.errors %} login-input-error{% endif %}"
+
+              value="{{ form.username.value|default:'' }}"
+
+              placeholder="you@example.com"
+
+              autocomplete="email"
+
+              required
+              autofocus
+            >
+
+            {% if form.username.errors %}
+              {% for error in form.username.errors %}
+                <p class="login-error">
+                  {{ error }}
+                </p>
+              {% endfor %}
+            {% endif %}
+
+          </div>
+
+
+          <!-- PASSWORD -->
+          <div class="login-field">
+
+            <label
+              for="id_password"
+              class="login-label"
+            >
+              Mật khẩu
+            </label>
+
+            <input
+              type="password"
+              name="password"
+              id="id_password"
+
+              class="login-input{% if form.password.errors %} login-input-error{% endif %}"
+
+              placeholder="Nhập mật khẩu"
+
+              autocomplete="current-password"
+
+              required
+            >
+
+            {% if form.password.errors %}
+              {% for error in form.password.errors %}
+                <p class="login-error">
+                  {{ error }}
+                </p>
+              {% endfor %}
+            {% endif %}
+
+          </div>
+
+
+          <!-- NEXT -->
+          {% if next %}
+            <input
+              type="hidden"
+              name="next"
+              value="{{ next }}"
+            >
+          {% endif %}
+
+
+          <!-- OPTIONS -->
+          <div class="login-options">
+
+            <label class="login-remember">
+
+              <input
+                type="checkbox"
+                name="remember_me"
+                class="login-checkbox"
+              >
+
+              <span>
+                Ghi nhớ đăng nhập
+              </span>
+
+            </label>
+
+            {#
+            Chưa bật vì backend hiện chưa có password reset URL.
+
+            <a
+              href="{% url 'accounts:password_reset' %}"
+              class="login-forgot"
+            >
+              Quên mật khẩu?
+            </a>
+            #}
+
+          </div>
+
+
+          <!-- SUBMIT -->
+          <button
+            type="submit"
+            class="login-submit"
+          >
+            Đăng nhập
+          </button>
+
+        </form>
+
+
+        <!-- =========================
+             FOOTER
+             ========================= -->
+
+        {#
+        Chưa bật vì hiện tại chưa có route accounts:register.
+
+        <p class="login-footer">
+
+          Chưa có tài khoản?
+
+          <a href="{% url 'accounts:register' %}">
+            Đăng ký
+          </a>
+
+        </p>
+        #}
+
+      </section>
+
+    </div>
+
+  </main>
+
+</body>
+</html>

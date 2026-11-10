@@ -1,0 +1,395 @@
+{% load static %}
+
+<div
+  class="auth-modal{% if auth_mode %} is-open{% endif %}"
+  data-auth-modal
+  data-initial-mode="{{ auth_mode|default:'' }}"
+  data-active-mode="{{ auth_mode|default:'' }}"
+  aria-hidden="{% if auth_mode %}false{% else %}true{% endif %}"
+>
+
+  <div
+    class="auth-modal__backdrop"
+    data-auth-close
+  ></div>
+
+
+  <section
+    class="auth-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Tài khoản Privet"
+  >
+
+    <!-- CLOSE -->
+    <a
+      href="{% url 'UI:landing' %}"
+      class="auth-dialog__close"
+      data-auth-close
+      aria-label="Đóng"
+    >
+      ×
+    </a>
+
+
+    <!-- =====================================================
+         LOGIN
+         ===================================================== -->
+
+    <div
+      class="auth-panel"
+      data-auth-panel="login"
+      {% if auth_mode != "login" %}hidden{% endif %}
+    >
+
+      <!-- BEAR LOGO -->
+      <div class="auth-header">
+
+  <img
+    class="auth-logo"
+    src="{% static 'UI/images/privet-bear-logo.png' %}"
+    alt=""
+    width="80"
+    height="80"
+    draggable="false"
+  >
+
+  <div class="auth-header-copy">
+
+    <h2 class="auth-title">
+      Đăng nhập
+    </h2>
+
+    <p class="auth-subtitle">
+      Chào mừng bạn quay lại!
+    </p>
+
+  </div>
+
+</div>
+
+
+      <!-- LOGIN GLOBAL ERRORS -->
+      {% if login_form.non_field_errors %}
+        <div
+          class="auth-errors"
+          role="alert"
+        >
+          {% for error in login_form.non_field_errors %}
+            <p>{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+
+      <!-- LOGIN FORM -->
+      <form
+        method="post"
+        action="{% url 'accounts:login' %}"
+        class="auth-form"
+      >
+
+        {% csrf_token %}
+
+        {% if next %}
+          <input
+            type="hidden"
+            name="next"
+            value="{{ next }}"
+          >
+        {% endif %}
+
+
+        <!-- EMAIL -->
+        <div class="auth-field">
+
+          <label for="login-email">
+            Email
+          </label>
+
+          <input
+            id="login-email"
+            type="email"
+            name="username"
+            value="{{ login_form.username.value|default:'' }}"
+            placeholder="minh.nguyen@email.com"
+            autocomplete="email"
+            required
+          >
+
+          {% for error in login_form.username.errors %}
+            <p class="auth-field-error">
+              {{ error }}
+            </p>
+          {% endfor %}
+
+        </div>
+
+
+        <!-- PASSWORD -->
+        <div class="auth-field">
+
+          <label for="login-password">
+            Mật khẩu
+          </label>
+
+          <input
+            id="login-password"
+            type="password"
+            name="password"
+            placeholder="••••••••"
+            autocomplete="current-password"
+            required
+          >
+
+          {% for error in login_form.password.errors %}
+            <p class="auth-field-error">
+              {{ error }}
+            </p>
+          {% endfor %}
+
+        </div>
+
+
+        <!-- SUBMIT -->
+        <button
+          type="submit"
+          class="auth-submit"
+        >
+          Đăng nhập
+        </button>
+
+      </form>
+
+
+      <!-- SWITCH TO REGISTER -->
+      <p class="auth-switch-text">
+
+        Chưa có tài khoản?
+
+        <a
+          href="{% url 'accounts:register' %}"
+          class="auth-switch"
+          data-auth-switch="register"
+        >
+          Đăng ký
+        </a>
+
+      </p>
+
+    </div>
+
+
+    <!-- =====================================================
+         REGISTER
+         ===================================================== -->
+
+    <div
+      class="auth-panel"
+      data-auth-panel="register"
+      {% if auth_mode != "register" %}hidden{% endif %}
+    >
+
+      <!-- BEAR LOGO -->
+      <div class="auth-header auth-header--register">
+
+  <img
+    class="auth-logo"
+    src="{% static 'UI/images/privet-bear-logo.png' %}"
+    alt=""
+    width="80"
+    height="80"
+    draggable="false"
+  >
+
+  <div class="auth-header-copy">
+
+    <h2 class="auth-title">
+      Tạo tài khoản
+    </h2>
+
+    <p class="auth-subtitle">
+      Privet đang ở giai đoạn closed beta.
+    </p>
+
+  </div>
+
+</div>
+
+
+      <!-- REGISTER GLOBAL ERRORS -->
+      {% if register_form.non_field_errors %}
+        <div
+          class="auth-errors"
+          role="alert"
+        >
+          {% for error in register_form.non_field_errors %}
+            <p>{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+
+      <!-- REGISTER FORM -->
+      <form
+        method="post"
+        action="{% url 'accounts:register' %}"
+        class="auth-form"
+      >
+
+        {% csrf_token %}
+
+
+        <!-- EMAIL -->
+        <div class="auth-field">
+
+          <label for="register-email">
+            Email
+          </label>
+
+          <input
+            id="register-email"
+            type="email"
+            name="email"
+            value="{{ register_form.email.value|default:'' }}"
+            placeholder="minh.nguyen@email.com"
+            autocomplete="email"
+            required
+          >
+
+          {% for error in register_form.email.errors %}
+            <p class="auth-field-error">
+              {{ error }}
+            </p>
+          {% endfor %}
+
+        </div>
+
+
+        <!-- PASSWORD -->
+        <div class="auth-field">
+
+          <label for="register-password">
+            Mật khẩu
+          </label>
+
+          <input
+            id="register-password"
+            type="password"
+            name="password"
+            placeholder="••••••••"
+            autocomplete="new-password"
+            required
+          >
+
+          {% for error in register_form.password.errors %}
+            <p class="auth-field-error">
+              {{ error }}
+            </p>
+          {% endfor %}
+
+        </div>
+
+
+        <!-- NAME -->
+        <div class="auth-name-row">
+
+          <div class="auth-field">
+
+            <label for="register-first-name">
+              Họ
+            </label>
+
+            <input
+              id="register-first-name"
+              type="text"
+              name="first_name"
+              value="{{ register_form.first_name.value|default:'' }}"
+              placeholder="Nguyễn"
+              autocomplete="family-name"
+            >
+
+          </div>
+
+
+          <div class="auth-field">
+
+            <label for="register-last-name">
+              Tên
+            </label>
+
+            <input
+              id="register-last-name"
+              type="text"
+              name="last_name"
+              value="{{ register_form.last_name.value|default:'' }}"
+              placeholder="Minh"
+              autocomplete="given-name"
+            >
+
+          </div>
+
+        </div>
+
+
+        <!-- INVITE CODE -->
+        <div class="auth-field">
+
+          <label for="register-invite-code">
+            Mã mời *
+          </label>
+
+          <input
+            id="register-invite-code"
+            type="text"
+            name="invite_code"
+            value="{{ register_form.invite_code.value|default:'' }}"
+            placeholder="PRIVET-A1B2"
+            autocomplete="off"
+            required
+          >
+
+          {% for error in register_form.invite_code.errors %}
+            <p class="auth-field-error">
+              {{ error }}
+            </p>
+          {% endfor %}
+
+          <p class="auth-help">
+            Mỗi mã chỉ dùng được một lần.
+          </p>
+
+        </div>
+
+
+        <!-- SUBMIT -->
+        <button
+          type="submit"
+          class="auth-submit"
+        >
+          Tạo tài khoản
+        </button>
+
+      </form>
+
+
+      <!-- SWITCH TO LOGIN -->
+      <p class="auth-switch-text">
+
+        Đã có tài khoản?
+
+        <a
+          href="{% url 'accounts:login' %}"
+          class="auth-switch"
+          data-auth-switch="login"
+        >
+          Đăng nhập
+        </a>
+
+      </p>
+
+    </div>
+
+  </section>
+
+</div>

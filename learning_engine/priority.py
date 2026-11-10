@@ -568,8 +568,13 @@ def rank_user_skill_priorities(
 
     Ranking:
     1. higher priority_score first;
-    2. skill_code ascending;
-    3. skill_id ascending.
+    2. CEFR curriculum order;
+    3. Topic.display_order;
+    4. Skill.display_order;
+    5. skill_id.
+
+    skill_code is intentionally NOT used as a
+    pedagogical tie-break.
     """
 
     if user.pk is None:
@@ -590,6 +595,35 @@ def rank_user_skill_priorities(
             "skill_ids must not contain duplicates."
         )
 
+    # -----------------------------------------
+    # Freeze curriculum metadata once.
+    # -----------------------------------------
+
+    skills_by_id = {
+        skill.pk: skill
+        for skill in (
+            Skill.objects
+            .filter(
+                pk__in=skill_ids
+            )
+            .select_related(
+                "topic"
+            )
+        )
+    }
+
+    if len(skills_by_id) != len(skill_ids):
+        raise ValueError(
+            "All skill_ids must reference existing "
+            "Skills."
+        )
+
+    cefr_order = {
+        "A1": 0,
+        "A2": 1,
+        "B1": 2,
+    }
+
     results = []
 
     for skill_id in skill_ids:
@@ -606,13 +640,27 @@ def rank_user_skill_priorities(
     results.sort(
         key=lambda row: (
             -row.priority_score,
-            row.skill_code,
+
+            cefr_order.get(
+                skills_by_id[
+                    row.skill_id
+                ].cefr_level,
+                99,
+            ),
+
+            skills_by_id[
+                row.skill_id
+            ].topic.display_order,
+
+            skills_by_id[
+                row.skill_id
+            ].display_order,
+
             row.skill_id,
         )
     )
 
     return tuple(results)
-
 
 def select_top_priority_skill(
     *,

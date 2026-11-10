@@ -1,0 +1,421 @@
+{% extends "UI/base.html" %}
+{% load static %}
+
+{% block body_class %}privet-dashboard-page{% endblock %}
+
+
+{% block page_styles %}
+  <link
+    rel="stylesheet"
+    href="{% static 'UI/css/dashboard.css' %}"
+  >
+{% endblock %}
+
+
+{% block content %}
+
+<div class="dashboard-page">
+
+
+  <!-- =====================================
+       HEADER
+       ===================================== -->
+
+  <header class="dashboard-header">
+
+    <a
+      href="{% url 'UI:dashboard' %}"
+      class="dashboard-brand"
+    >
+
+      <img
+        src="{% static 'UI/images/privet-bear-logo.png' %}"
+        class="dashboard-brand-logo"
+        alt=""
+      >
+
+      <span>
+        Privet
+      </span>
+
+    </a>
+
+
+    <nav
+      class="dashboard-nav"
+      aria-label="Điều hướng chính"
+    >
+
+      <a
+        href="{% url 'UI:dashboard' %}"
+        class="dashboard-nav-link is-active"
+      >
+        Trang chủ
+      </a>
+
+      <a
+          href="{% url 'UI:lessons' %}"
+          class="dashboard-nav-link"
+        >
+          Bài học
+        </a>
+
+      <a
+        href="{% url 'UI:test_hub' %}"
+        class="dashboard-nav-link"
+      >
+        Bài test
+      </a>
+
+      <a
+          href="{% url 'UI:progress' %}"
+          class="dashboard-nav-link"
+        >
+          Tiến độ
+        </a>
+
+    </nav>
+
+
+    <div class="dashboard-user">
+
+      <span
+        class="dashboard-notification-dot"
+        aria-hidden="true"
+      ></span>
+
+      <div
+        class="dashboard-avatar"
+        title="{{ display_name }}"
+      >
+        {{ display_name|slice:":1"|upper }}
+      </div>
+
+    </div>
+
+  </header>
+
+
+
+  <!-- =====================================
+       MAIN
+       ===================================== -->
+
+  <main
+    class="dashboard-main"
+    id="main-content"
+  >
+
+
+    <!-- ===================================
+         ROW 1
+         GREETING + STREAK
+         =================================== -->
+
+    <section class="dashboard-top-grid">
+
+
+      <!-- WELCOME -->
+
+      <article class="welcome-card">
+
+        <div class="welcome-content">
+
+          <h1 class="dashboard-title">
+            Chào {{ display_name }}!
+          </h1>
+
+          <p class="dashboard-subtitle">
+            Chúng mình cùng học
+            <span>tiếng Nga</span>
+            nhé
+          </p>
+
+        </div>
+
+      </article>
+
+
+
+      <!-- STREAK -->
+
+      <article
+        class="dashboard-card streak-card"
+        aria-labelledby="streak-title"
+      >
+
+        <div class="streak-top">
+
+          <div>
+
+            <p
+              class="dashboard-card-label"
+              id="streak-title"
+            >
+              STREAK
+            </p>
+
+            <div class="streak-value">
+
+              <strong>
+                {{ streak_count }}
+              </strong>
+
+              <span>
+                ngày liên tiếp
+              </span>
+
+            </div>
+
+          </div>
+
+
+          <div class="streak-month">
+            {{ month_label }}
+          </div>
+
+        </div>
+
+
+
+        <!--
+          Mỗi ô tương ứng một ngày trong tháng.
+          Không hiện số ngày.
+
+          Có học:
+          hiện logo gấu.
+
+          Không học:
+          ô để trống.
+        -->
+
+        <div class="streak-days">
+
+          {% for item in streak_days %}
+
+            <div
+              class="
+                streak-day
+                {% if item.learned %}has-study{% endif %}
+                {% if item.is_today %}is-today{% endif %}
+              "
+              {% if item.learned %}
+                title="Ngày {{ item.day }} — Đã học"
+              {% else %}
+                title="Ngày {{ item.day }}"
+              {% endif %}
+            >
+
+              {% if item.learned %}
+
+                <img
+                  src="{% static 'UI/images/privet-bear-logo.png' %}"
+                  alt=""
+                  draggable="false"
+                >
+
+              {% endif %}
+
+            </div>
+
+          {% endfor %}
+
+        </div>
+
+
+        <div class="streak-legend">
+
+          <span class="streak-legend-bear">
+
+            <img
+              src="{% static 'UI/images/privet-bear-logo.png' %}"
+              alt=""
+            >
+
+          </span>
+
+          <span>
+            Ngày có học
+          </span>
+
+        </div>
+
+      </article>
+
+    </section>
+
+
+
+    <!-- ===================================
+         ROW 2
+         =================================== -->
+
+    <section class="dashboard-bottom-grid">
+
+
+      <!-- =================================
+           RECENT LESSON
+           ================================= -->
+
+      <article
+        class="dashboard-card lesson-card"
+      >
+
+        <div class="card-heading">
+
+          <p class="dashboard-card-label">
+            BÀI HỌC GẦN ĐÂY
+          </p>
+
+          <span class="lesson-type">
+            Ngữ pháp
+          </span>
+
+        </div>
+
+
+        <div class="lesson-main">
+
+          <div>
+
+            <h2 class="lesson-title">
+              Глаголы движения
+            </h2>
+
+            <p class="lesson-subtitle">
+              идти / ходить
+            </p>
+
+          </div>
+
+
+          <div class="lesson-percentage">
+            65%
+          </div>
+
+        </div>
+
+
+        <div class="lesson-progress">
+
+          <div
+            class="lesson-progress-bar"
+            style="width: 65%;"
+          ></div>
+
+        </div>
+
+
+        <a
+          href="#"
+          class="dashboard-primary-button"
+        >
+          Tiếp tục bài học
+        </a>
+
+      </article>
+
+
+
+      <!-- =================================
+           QUESTIONS
+           ================================= -->
+
+      <article
+        class="dashboard-card questions-card"
+      >
+
+        <div class="questions-heading">
+
+          <div>
+
+            <p class="dashboard-card-label">
+              CÂU ĐÃ LÀM TUẦN NÀY
+            </p>
+
+            <strong class="questions-total">
+              42
+            </strong>
+
+          </div>
+
+
+          <p class="questions-note">
+            Practice + Test
+          </p>
+
+        </div>
+
+
+        <div
+          class="questions-chart"
+          aria-hidden="true"
+        >
+
+          <div class="question-column">
+            <div
+              class="question-bar"
+              style="height: 44%;"
+            ></div>
+            <span>T2</span>
+          </div>
+
+          <div class="question-column">
+            <div
+              class="question-bar"
+              style="height: 68%;"
+            ></div>
+            <span>T3</span>
+          </div>
+
+          <div class="question-column">
+            <div
+              class="question-bar"
+              style="height: 22%;"
+            ></div>
+            <span>T4</span>
+          </div>
+
+          <div class="question-column">
+            <div
+              class="question-bar"
+              style="height: 60%;"
+            ></div>
+            <span>T5</span>
+          </div>
+
+          <div class="question-column">
+            <div
+              class="question-bar"
+              style="height: 82%;"
+            ></div>
+            <span>T6</span>
+          </div>
+
+          <div class="question-column">
+            <div
+              class="question-bar"
+              style="height: 54%;"
+            ></div>
+            <span>T7</span>
+          </div>
+
+          <div class="question-column">
+            <div
+              class="question-bar"
+              style="height: 62%;"
+            ></div>
+            <span>CN</span>
+          </div>
+
+        </div>
+
+      </article>
+
+    </section>
+
+  </main>
+
+</div>
+
+{% endblock %}

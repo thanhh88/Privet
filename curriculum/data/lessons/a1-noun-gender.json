@@ -1,0 +1,95 @@
+{
+  "slug": "a1-noun-gender",
+  "category_key": "grammar",
+  "category": "Ngữ pháp",
+  "cefr_level": "A1",
+  "order": 1,
+  "is_active": true,
+
+  "title": "Род существительных",
+  "title_vi": "Giống của danh từ",
+
+  "estimated_minutes": 10,
+
+  "intro": "Trong tiếng Nga, danh từ được chia thành ba giống: giống đực, giống cái và giống trung.",
+
+  "theory": [
+    {
+      "heading": "1. Giống đực",
+      "paragraphs": [
+        "Danh từ giống đực thường kết thúc bằng một phụ âm.",
+        "Một số danh từ kết thúc bằng -й hoặc -ь cũng thuộc giống đực."
+      ],
+      "bullets": [
+        {
+          "label": "Ví dụ",
+          "text": "стол, дом, музей, словарь"
+        }
+      ]
+    },
+    {
+      "heading": "2. Giống cái",
+      "paragraphs": [
+        "Danh từ giống cái thường kết thúc bằng -а hoặc -я.",
+        "Một số danh từ kết thúc bằng -ь cũng thuộc giống cái."
+      ],
+      "bullets": [
+        {
+          "label": "Ví dụ",
+          "text": "мама, неделя, дверь"
+        }
+      ]
+    },
+    {
+      "heading": "3. Giống trung",
+      "paragraphs": [
+        "Danh từ giống trung thường kết thúc bằng -о hoặc -е."
+      ],
+      "bullets": [
+        {
+          "label": "Ví dụ",
+          "text": "окно, море, слово"
+        }
+      ]
+    }
+  ],
+
+  "examples": [
+    {
+      "ru": "Это новый стол.",
+      "vi": "Đây là một cái bàn mới.",
+      "note": "стол là danh từ giống đực."
+    },
+    {
+      "ru": "Это новая книга.",
+      "vi": "Đây là một quyển sách mới.",
+      "note": "книга là danh từ giống cái."
+    },
+    {
+      "ru": "Это новое окно.",
+      "vi": "Đây là một cửa sổ mới.",
+      "note": "окно là danh từ giống trung."
+    }
+  ],
+
+  "practice": [
+    {
+      "id": "demo-1",
+      "prompt": "Danh từ стол thuộc giống nào?",
+      "answer": "Giống đực",
+      "explanation": "стол kết thúc bằng một phụ âm."
+    },
+    {
+      "id": "demo-2",
+      "prompt": "Danh từ книга thuộc giống nào?",
+      "answer": "Giống cái",
+      "explanation": "книга kết thúc bằng -а."
+    },
+    {
+      "id": "demo-3",
+      "prompt": "Danh từ окно thuộc giống nào?",
+      "answer": "Giống trung",
+      "explanation": "окно kết thúc bằng -о."
+    }
+  ]
+}

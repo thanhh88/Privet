@@ -1,0 +1,161 @@
+{% extends "UI/base.html" %}
+{% load static %}
+
+{% block body_class %}privet-landing-page{% endblock %}
+
+{% block page_styles %}
+  <link rel="stylesheet" href="{% static 'UI/css/landing.css' %}">
+  <link rel="stylesheet" href="{% static 'UI/css/auth.css' %}">
+{% endblock %}
+
+
+{% block content %}
+  <div class="landing-scene">
+
+    <div
+      class="landing-scenery"
+      aria-hidden="true"
+    ></div>
+
+
+    <!-- =========================
+         BRAND
+         ========================= -->
+    <header class="landing-header">
+
+      <a
+        class="landing-brand"
+        href="{% url 'UI:landing' %}"
+        aria-label="Privet — Trang chủ"
+      >
+        Privet
+      </a>
+
+    </header>
+
+
+    <!-- =========================
+         LANDING CONTENT
+         ========================= -->
+    <main
+      class="landing-main"
+      id="main-content"
+      tabindex="-1"
+    >
+
+      <section
+        class="landing-hero"
+        aria-labelledby="landing-title"
+      >
+
+        <!-- TEXT -->
+        <div class="landing-copy">
+
+          <h1
+            class="landing-title"
+            id="landing-title"
+          >
+            <span class="landing-title-line">
+              Học tiếng Nga
+            </span>
+
+            <span class="landing-title-line">
+              theo tốc độ
+            </span>
+
+            <span
+              class="landing-title-line landing-title-accent"
+            >
+              riêng của bạn
+            </span>
+          </h1>
+
+
+          <p class="landing-description">
+
+            <span class="landing-description-line">
+              Công cụ hỗ trợ cá nhân hóa
+            </span>
+
+            <span class="landing-description-line">
+              quá trình học tiếng Nga
+            </span>
+
+          </p>
+
+        </div>
+
+
+        <!-- ILLUSTRATION -->
+        <div
+          class="landing-art"
+          aria-hidden="true"
+        >
+
+          <img
+            class="privet-illustration landing-mascot"
+            src="{% static 'UI/images/mascot-bear.png' %}"
+            alt=""
+            width="1254"
+            height="1254"
+            fetchpriority="high"
+            decoding="async"
+            draggable="false"
+          >
+
+          <img
+            class="privet-illustration landing-dolls"
+            src="{% static 'UI/images/matryoshka-pair.png' %}"
+            alt=""
+            width="1254"
+            height="1254"
+            decoding="async"
+            draggable="false"
+          >
+
+        </div>
+
+      </section>
+
+
+      <!-- =========================
+           ONLY TWO LANDING ACTIONS
+           ========================= -->
+      <nav
+        class="landing-actions"
+        aria-label="Bắt đầu với Privet"
+      >
+
+        <a
+          class="btn btn-primary privet-btn"
+          href="{% url 'accounts:register' %}"
+          data-auth-open="register"
+        >
+          Đăng ký
+        </a>
+
+
+        <a
+          class="btn btn-primary privet-btn"
+          href="{% url 'accounts:login' %}"
+          data-auth-open="login"
+        >
+          Đăng nhập
+        </a>
+
+      </nav>
+
+    </main>
+
+  </div>
+
+
+  <!-- =========================
+       LOGIN / REGISTER MODAL
+       ========================= -->
+  {% include "UI/partials/auth_modal.html" %}
+  <script
+    src="{% static 'UI/js/auth-modal.js' %}"
+    defer
+  ></script>
+{% endblock %}

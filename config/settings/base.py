@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     "learning_engine",
+    "vocabulary.apps.VocabularyConfig",
 
 # Privet apps
     "core",
@@ -119,7 +120,9 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 MASTERY_RULE_V1 = {
-    "algorithm_version": "rule_v2",
+    "algorithm_version": "rule_v3",
+
+    "recency_k_min": "0.12",
 
     # Bayesian prior
     "alpha": "2",
@@ -128,16 +131,14 @@ MASTERY_RULE_V1 = {
     # Difficulty adjustment
     "beta": "0.50",
 
-    # Time decay
-    "half_life_days": "21",
-
     # Storage / UI thresholds
     "min_observations": 3,
     "mastered_min_observations": 5,
     "mastered_threshold": "0.70",
 
-    # Lazy refresh
-    "refresh_after_hours": 24,
+    "review_after_days": 14,
+    "review_backlog_threshold": 8,
+
 }
 
 # Internationalization
@@ -167,3 +168,16 @@ MEDIA_ROOT = BASE_DIR / "media"
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = "accounts.User"
+
+VOCABULARY_SRS = {
+    "version": "leitner_v1",
+    "intervals": {
+        1: 1,
+        2: 3,
+        3: 7,
+        4: 14,
+        5: 30,
+    },
+    "max_new_per_day": 15,
+    "max_due_per_request": 50,
+}

@@ -1,0 +1,557 @@
+{% extends "UI/base.html" %}
+{% load static %}
+
+{% block body_class %}
+privet-test-history-page
+{% endblock %}
+
+
+{% block page_styles %}
+<link
+  rel="stylesheet"
+  href="{% static 'UI/css/tests.css' %}"
+>
+{% endblock %}
+
+
+{% block content %}
+
+<div class="test-page">
+
+
+  <!-- =====================================================
+       HEADER
+       ===================================================== -->
+
+  <header class="test-header">
+
+    <a
+      href="{% url 'UI:dashboard' %}"
+      class="test-brand"
+    >
+
+      <img
+        src="{% static 'UI/images/privet-bear-logo.png' %}"
+        class="test-brand-logo"
+        alt=""
+        draggable="false"
+      >
+
+      <span>
+        Privet
+      </span>
+
+    </a>
+
+
+    <nav
+      class="test-nav"
+      aria-label="Điều hướng chính"
+    >
+
+      <a
+        href="{% url 'UI:dashboard' %}"
+        class="test-nav-link"
+      >
+        Trang chủ
+      </a>
+
+
+      <a
+        href="{% url 'UI:lessons' %}"
+        class="test-nav-link"
+      >
+        Bài học
+      </a>
+
+
+      <a
+        href="{% url 'UI:test_hub' %}"
+        class="test-nav-link is-active"
+      >
+        Bài test
+      </a>
+
+
+      <a
+        href="{% url 'UI:progress' %}"
+        class="test-nav-link"
+      >
+        Tiến độ
+      </a>
+
+    </nav>
+
+
+    <div class="test-user">
+
+      <span
+        class="test-notification-dot"
+        aria-hidden="true"
+      ></span>
+
+
+      <div
+        class="test-avatar"
+        title="{{ display_name }}"
+      >
+        {{ display_name|slice:":1"|upper }}
+      </div>
+
+    </div>
+
+  </header>
+
+
+
+  <!-- =====================================================
+       MAIN
+       ===================================================== -->
+
+  <main class="test-history-main">
+
+
+    <!-- PAGE HEADING -->
+
+    <section class="history-page-heading">
+
+      <div>
+
+        <a
+          href="{% url 'UI:test_hub' %}"
+          class="history-back-link"
+        >
+          ← Quay lại Bài test
+        </a>
+
+
+        <h1>
+          Lịch sử kiểm tra
+        </h1>
+
+
+        <p>
+          Xem lại kết quả, đáp án và những kiến thức
+          cần chú ý trong các bài đã nộp.
+        </p>
+
+      </div>
+
+    </section>
+
+
+
+    <!-- ===================================================
+         HISTORY LAYOUT
+         =================================================== -->
+
+    <section class="history-layout">
+
+
+      <!-- ===============================================
+           LEFT — TEST LIST
+           =============================================== -->
+
+      <aside class="test-card history-list-card">
+
+        <header class="history-list-heading">
+
+          <div>
+
+            <p class="test-card-label">
+              BÀI ĐÃ NỘP
+            </p>
+
+            <h2>
+              Mới nhất trước
+            </h2>
+
+          </div>
+
+
+          <span>
+            {{ test_history|length }} bài
+          </span>
+
+        </header>
+
+
+        <div class="history-test-list">
+
+          {% for item in test_history %}
+
+            <a
+              href="{% url 'UI:test_history' %}?test={{ item.id }}"
+              class="
+                history-test-item
+                {% if item.id == selected_test.id %}
+                  is-active
+                {% endif %}
+              "
+            >
+
+              <div class="history-test-date">
+
+                <strong>
+                  {{ item.date }}
+                </strong>
+
+                <span>
+                  {{ item.duration }}
+                </span>
+
+              </div>
+
+
+              <div class="history-test-score">
+
+                <strong>
+                  {{ item.score }}/{{ item.total }}
+                </strong>
+
+                <span>
+                  {{ item.percent }}%
+                </span>
+
+              </div>
+
+
+              <span
+                class="history-test-arrow"
+                aria-hidden="true"
+              >
+                →
+              </span>
+
+            </a>
+
+          {% endfor %}
+
+        </div>
+
+      </aside>
+
+
+
+      <!-- ===============================================
+           RIGHT — REVIEW
+           =============================================== -->
+
+      <section class="history-review-column">
+
+
+        <!-- RESULT SUMMARY -->
+
+        <article class="test-card history-result-card">
+
+          <div
+            class="history-score-circle"
+            style="
+              --history-score:
+              {{ selected_test.percent }}%;
+            "
+          >
+
+            <div>
+
+              <strong>
+                {{ selected_test.score }}
+                /
+                {{ selected_test.total }}
+              </strong>
+
+              <span>
+                {{ selected_test.percent }}%
+              </span>
+
+            </div>
+
+          </div>
+
+
+          <div class="history-result-main">
+
+            <p class="test-card-label">
+              XEM LẠI BÀI
+            </p>
+
+            <h2>
+              Bài kiểm tra
+              {{ selected_test.date }}
+            </h2>
+
+            <p>
+              Bài đã nộp · Chỉ có thể xem lại
+            </p>
+
+          </div>
+
+
+          <div class="history-result-stats">
+
+            <div>
+
+              <strong>
+                {{ selected_test.correct }}
+              </strong>
+
+              <span>
+                Đúng
+              </span>
+
+            </div>
+
+
+            <div>
+
+              <strong>
+                {{ selected_test.wrong }}
+              </strong>
+
+              <span>
+                Sai
+              </span>
+
+            </div>
+
+
+            <div>
+
+              <strong>
+                {{ selected_test.blank }}
+              </strong>
+
+              <span>
+                Bỏ trống
+              </span>
+
+            </div>
+
+
+            <div>
+
+              <strong>
+                {{ selected_test.duration }}
+              </strong>
+
+              <span>
+                Thời gian
+              </span>
+
+            </div>
+
+          </div>
+
+        </article>
+
+
+
+        <!-- FILTERS -->
+
+        <nav
+          class="review-filters"
+          aria-label="Lọc câu trả lời"
+        >
+
+          <a
+            href="{% url 'UI:test_history' %}?test={{ selected_test.id }}&filter=all"
+            class="
+              review-filter
+              {% if review_filter == 'all' %}
+                is-active
+              {% endif %}
+            "
+          >
+            Tất cả
+            <span>
+              {{ selected_test.total }}
+            </span>
+          </a>
+
+
+          <a
+            href="{% url 'UI:test_history' %}?test={{ selected_test.id }}&filter=wrong"
+            class="
+              review-filter
+              {% if review_filter == 'wrong' %}
+                is-active
+              {% endif %}
+            "
+          >
+            Câu sai
+            <span>
+              {{ selected_test.wrong }}
+            </span>
+          </a>
+
+
+          <a
+            href="{% url 'UI:test_history' %}?test={{ selected_test.id }}&filter=blank"
+            class="
+              review-filter
+              {% if review_filter == 'blank' %}
+                is-active
+              {% endif %}
+            "
+          >
+            Bỏ trống
+            <span>
+              {{ selected_test.blank }}
+            </span>
+          </a>
+
+        </nav>
+
+
+
+        <!-- QUESTION REVIEW -->
+
+        <div class="review-question-list">
+
+          {% for question in review_questions %}
+
+            <article
+              class="
+                review-question-card
+                is-{{ question.status }}
+              "
+            >
+
+              <header class="review-question-heading">
+
+                <div>
+
+                  <span class="review-question-number">
+                    Câu {{ question.number }}
+                  </span>
+
+
+                  <span
+                    class="
+                      review-status
+                      is-{{ question.status }}
+                    "
+                  >
+                    {{ question.status_label }}
+                  </span>
+
+                </div>
+
+
+                <span class="review-skill">
+                  {{ question.skill }}
+                </span>
+
+              </header>
+
+
+
+              <h3>
+                {{ question.prompt }}
+              </h3>
+
+
+              {% if question.translation %}
+
+                <p class="review-translation">
+                  {{ question.translation }}
+                </p>
+
+              {% endif %}
+
+
+
+              <div class="review-answer-grid">
+
+
+                <!-- USER ANSWER -->
+
+                <div class="review-answer-box">
+
+                  <span>
+                    Bạn trả lời
+                  </span>
+
+                  <strong>
+                    {{ question.user_answer }}
+                  </strong>
+
+                </div>
+
+
+
+                <!-- CORRECT ANSWER -->
+
+                {% if question.status != "correct" %}
+
+                  <div
+                    class="
+                      review-answer-box
+                      is-correct-answer
+                    "
+                  >
+
+                    <span>
+                      Đáp án đúng
+                    </span>
+
+                    <strong>
+                      {{ question.correct_answer }}
+                    </strong>
+
+                  </div>
+
+                {% endif %}
+
+              </div>
+
+
+
+              <details class="review-explanation">
+
+                <summary>
+                  Xem giải thích
+                </summary>
+
+
+                <p>
+                  {{ question.explanation }}
+                </p>
+
+              </details>
+
+            </article>
+
+
+          {% empty %}
+
+            <div class="review-empty">
+
+              <img
+                src="{% static 'UI/images/privet-bear-logo.png' %}"
+                alt=""
+              >
+
+              <h3>
+                Không có câu phù hợp
+              </h3>
+
+              <p>
+                Bài này không có câu thuộc bộ lọc hiện tại.
+              </p>
+
+            </div>
+
+          {% endfor %}
+
+        </div>
+
+      </section>
+
+    </section>
+
+  </main>
+
+</div>
+
+{% endblock %}

@@ -9,6 +9,11 @@ from learning_engine.models import (
     SessionQuestion,
 )
 from django.contrib.auth import get_user_model
+from learning_engine.beginner_path import (
+    BeginnerLessonAction,
+    BeginnerLessonUnavailableReason,
+    resolve_beginner_lesson,
+)
 
 @dataclass(frozen=True)
 class LearnerEntryState:
@@ -182,6 +187,65 @@ def resolve_learner_entry_state(
             prior_russian_experience
         ),
     )
+
+    # =================================================
+    # Beginner curriculum completion transition
+    # =================================================
+    #
+    # Pure cold-start routing intentionally maps a
+    # learner with:
+    #
+    #     prior_russian_experience=False
+    #     no finalized assessment evidence
+    #
+    # to BEGINNER_PATH.
+    #
+    # That is correct until the learner has completed
+    # the whole currently available beginner curriculum.
+    #
+    # Once every eligible beginner Lesson has been
+    # completed, BEGINNER_PATH would otherwise become a
+    # permanent dead-end:
+    #
+    #     BEGINNER_PATH
+    #     -> ALL_COMPLETED
+    #     -> BEGINNER_PATH
+    #
+    # At that point the next canonical action is the
+    # learner's first adaptive assessment.
+    #
+    # Important:
+    # NO_ELIGIBLE_LESSONS must NOT unlock assessment.
+    # Only an actual ALL_COMPLETED state does.
+
+    if (
+            route
+            == LearnerEntryRoute.BEGINNER_PATH
+    ):
+        beginner_resolution = (
+            resolve_beginner_lesson(
+                user=user,
+            )
+        )
+
+        beginner_curriculum_completed = (
+                beginner_resolution.action
+                == (
+                    BeginnerLessonAction
+                    .NO_AVAILABLE_LESSON
+                )
+                and (
+                        beginner_resolution
+                        .unavailable_reason
+                        == (
+                            BeginnerLessonUnavailableReason
+                            .ALL_COMPLETED
+                        )
+                )
+        )
+
+        if beginner_curriculum_completed:
+            route = LearnerEntryRoute.ADAPTIVE
 
     return LearnerEntryState(
         route=route,

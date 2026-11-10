@@ -1,0 +1,696 @@
+{% extends "UI/base.html" %}
+{% load static %}
+
+{% block body_class %}
+privet-lesson-detail-page
+{% endblock %}
+
+
+{% block content %}
+
+<div style="
+  min-height: 100vh;
+  background:
+    linear-gradient(
+      180deg,
+      #edf8ff 0%,
+      #f7fbff 55%,
+      #ffffff 100%
+    );
+">
+
+
+  <!-- =====================================================
+       HEADER
+       ===================================================== -->
+
+  <header style="
+    height: 80px;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 32px;
+    padding: 0 5vw;
+    background: rgba(255, 255, 255, 0.96);
+    border-bottom: 1px solid rgba(67, 113, 171, 0.13);
+  ">
+
+
+    <!-- BRAND -->
+
+    <a
+      href="{% url 'UI:dashboard' %}"
+      style="
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #10277f;
+        font-size: 24px;
+        font-weight: 1000;
+        text-decoration: none;
+      "
+    >
+
+      <img
+        src="{% static 'UI/images/privet-bear-logo.png' %}"
+        alt=""
+        style="
+          width: 42px;
+          height: 42px;
+          object-fit: contain;
+        "
+      >
+
+      <span>
+        Privet
+      </span>
+
+    </a>
+
+
+
+    <!-- NAV -->
+
+    <nav style="
+      justify-self: center;
+      display: flex;
+      align-items: center;
+      gap: 55px;
+    ">
+
+      <a
+        href="{% url 'UI:dashboard' %}"
+        style="
+          color: #718197;
+          font-weight: 800;
+          text-decoration: none;
+        "
+      >
+        Trang chủ
+      </a>
+
+
+      <a
+        href="{% url 'UI:lessons' %}"
+        style="
+          color: #2956f5;
+          font-weight: 900;
+          text-decoration: none;
+        "
+      >
+        Bài học
+      </a>
+
+
+      <a
+        href="{% url 'UI:test_hub' %}"
+        style="
+          color: #718197;
+          font-weight: 800;
+          text-decoration: none;
+        "
+      >
+        Bài test
+      </a>
+
+
+      <a
+        href="{% url 'UI:progress' %}"
+        style="
+          color: #718197;
+          font-weight: 800;
+          text-decoration: none;
+        "
+      >
+        Tiến độ
+      </a>
+
+    </nav>
+
+
+
+    <!-- AVATAR -->
+
+    <div style="
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: #2956f5;
+      color: #ffffff;
+      font-weight: 900;
+    ">
+      {{ display_name|slice:":1"|upper }}
+    </div>
+
+  </header>
+
+
+
+  <!-- =====================================================
+       MAIN
+       ===================================================== -->
+
+  <main style="
+    width: min(1100px, calc(100% - 40px));
+    margin: 0 auto;
+    padding: 32px 0 60px;
+  ">
+
+
+    <!-- BACK -->
+
+    <a
+      href="{% url 'UI:lessons' %}?category={{ lesson.category_key }}&level={{ lesson.cefr_level }}"
+      style="
+        display: inline-block;
+        margin-bottom: 20px;
+        color: #2956f5;
+        font-size: 14px;
+        font-weight: 900;
+        text-decoration: none;
+      "
+    >
+      ← Quay lại Bài học
+    </a>
+
+
+
+    <!-- ===================================================
+         LESSON HERO
+         =================================================== -->
+
+    <section style="
+      padding: 38px 42px;
+      border: 1px solid #dce8f4;
+      border-radius: 28px;
+      background:
+        linear-gradient(
+          135deg,
+          #e8f3ff 0%,
+          #f5f2ff 100%
+        );
+    ">
+
+
+      <!-- BADGES -->
+
+      <div style="
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 18px;
+      ">
+
+        <span style="
+          padding: 7px 13px;
+          border-radius: 999px;
+          background: #ffffff;
+          color: #2956f5;
+          font-size: 12px;
+          font-weight: 900;
+        ">
+          {{ lesson.category }}
+        </span>
+
+
+        <span style="
+          padding: 7px 13px;
+          border-radius: 999px;
+          background: #ffffff;
+          color: #607b99;
+          font-size: 12px;
+          font-weight: 900;
+        ">
+          {{ lesson.cefr_level }}
+        </span>
+
+
+        {% if lesson.estimated_minutes %}
+
+          <span style="
+            padding: 7px 13px;
+            border-radius: 999px;
+            background: #ffffff;
+            color: #607b99;
+            font-size: 12px;
+            font-weight: 900;
+          ">
+            {{ lesson.estimated_minutes }} phút
+          </span>
+
+        {% endif %}
+
+      </div>
+
+
+
+      <!-- TITLE -->
+
+      <h1 style="
+        margin: 0;
+        color: #10277f;
+        font-size: clamp(36px, 5vw, 58px);
+        font-weight: 1000;
+        line-height: 1.05;
+      ">
+        {{ lesson.title }}
+      </h1>
+
+
+      {% if lesson.title_vi %}
+
+        <h2 style="
+          margin: 10px 0 0;
+          color: #2956f5;
+          font-size: 22px;
+          font-weight: 900;
+        ">
+          {{ lesson.title_vi }}
+        </h2>
+
+      {% endif %}
+
+
+      {% if lesson.intro %}
+
+        <p style="
+          max-width: 760px;
+          margin: 20px 0 0;
+          color: #607b99;
+          font-size: 16px;
+          font-weight: 700;
+          line-height: 1.7;
+        ">
+          {{ lesson.intro }}
+        </p>
+
+      {% endif %}
+
+    </section>
+
+
+
+    <!-- ===================================================
+         LESSON CONTENT
+         =================================================== -->
+
+    <section style="
+      margin-top: 20px;
+      padding: 38px 42px;
+      border: 1px solid #dce8f4;
+      border-radius: 28px;
+      background: #ffffff;
+    ">
+
+
+      <!-- =================================================
+           THEORY
+           ================================================= -->
+
+      {% if lesson.theory %}
+
+        <section>
+
+          <p style="
+            margin: 0 0 24px;
+            color: #2956f5;
+            font-size: 13px;
+            font-weight: 1000;
+            letter-spacing: 0.08em;
+          ">
+            LÝ THUYẾT
+          </p>
+
+
+          {% for section in lesson.theory %}
+
+            <article style="
+              {% if not forloop.first %}
+                margin-top: 34px;
+                padding-top: 30px;
+                border-top: 1px solid #e6edf5;
+              {% endif %}
+            ">
+
+              <h2 style="
+                margin: 0 0 14px;
+                color: #10277f;
+                font-size: 24px;
+                font-weight: 1000;
+              ">
+                {{ section.heading }}
+              </h2>
+
+
+              {% for paragraph in section.paragraphs %}
+
+                <p style="
+                  margin: 10px 0;
+                  color: #566f89;
+                  font-size: 16px;
+                  font-weight: 600;
+                  line-height: 1.7;
+                ">
+                  {{ paragraph }}
+                </p>
+
+              {% endfor %}
+
+
+
+              <!-- BULLETS / NOTES -->
+
+              {% if section.bullets %}
+
+                <div style="
+                  margin-top: 18px;
+                  padding: 16px 18px;
+                  border-left: 4px solid #2956f5;
+                  border-radius: 0 14px 14px 0;
+                  background: #f1f6ff;
+                ">
+
+                  {% for bullet in section.bullets %}
+
+                    <p style="
+                      margin: 6px 0;
+                      color: #566f89;
+                      line-height: 1.6;
+                    ">
+
+                      {% if bullet.label %}
+
+                        <strong style="
+                          color: #10277f;
+                        ">
+                          {{ bullet.label }}:
+                        </strong>
+
+                      {% endif %}
+
+                      {{ bullet.text }}
+
+                    </p>
+
+                  {% endfor %}
+
+                </div>
+
+              {% endif %}
+
+            </article>
+
+          {% endfor %}
+
+        </section>
+
+      {% endif %}
+
+
+
+      <!-- =================================================
+           EXAMPLES
+           ================================================= -->
+
+      {% if lesson.examples %}
+
+        <section style="
+          margin-top: 42px;
+          padding-top: 34px;
+          border-top: 1px solid #e6edf5;
+        ">
+
+          <p style="
+            margin: 0 0 20px;
+            color: #2956f5;
+            font-size: 13px;
+            font-weight: 1000;
+            letter-spacing: 0.08em;
+          ">
+            VÍ DỤ
+          </p>
+
+
+          <div style="
+            display: grid;
+            gap: 12px;
+          ">
+
+            {% for example in lesson.examples %}
+
+              <article style="
+                padding: 18px 20px;
+                border: 1px solid #e1e9f2;
+                border-radius: 16px;
+                background: #fbfdff;
+              ">
+
+                <p style="
+                  margin: 0;
+                  color: #10277f;
+                  font-size: 18px;
+                  font-weight: 1000;
+                ">
+                  {{ example.ru }}
+                </p>
+
+
+                {% if example.vi %}
+
+                  <p style="
+                    margin: 7px 0 0;
+                    color: #667e98;
+                    font-size: 15px;
+                    font-weight: 700;
+                  ">
+                    {{ example.vi }}
+                  </p>
+
+                {% endif %}
+
+
+                {% if example.note %}
+
+                  <p style="
+                    margin: 8px 0 0;
+                    color: #2956f5;
+                    font-size: 13px;
+                    font-weight: 800;
+                  ">
+                    {{ example.note }}
+                  </p>
+
+                {% endif %}
+
+              </article>
+
+            {% endfor %}
+
+          </div>
+
+        </section>
+
+      {% endif %}
+
+
+
+      <!-- =================================================
+           PRACTICE
+           ================================================= -->
+
+      {% if lesson.practice %}
+
+        <section style="
+          margin-top: 42px;
+          padding-top: 34px;
+          border-top: 1px solid #e6edf5;
+        ">
+
+          <p style="
+            margin: 0 0 20px;
+            color: #2956f5;
+            font-size: 13px;
+            font-weight: 1000;
+            letter-spacing: 0.08em;
+          ">
+            THỬ NHANH
+          </p>
+
+
+          <div style="
+            display: grid;
+            gap: 14px;
+          ">
+
+            {% for question in lesson.practice %}
+
+              <article style="
+                padding: 20px;
+                border: 1px solid #e1e9f2;
+                border-radius: 16px;
+                background: #ffffff;
+              ">
+
+                <div style="
+                  display: flex;
+                  align-items: flex-start;
+                  gap: 14px;
+                ">
+
+                  <span style="
+                    width: 30px;
+                    height: 30px;
+                    flex: 0 0 30px;
+                    display: grid;
+                    place-items: center;
+                    border-radius: 50%;
+                    background: #2956f5;
+                    color: #ffffff;
+                    font-size: 13px;
+                    font-weight: 900;
+                  ">
+                    {{ forloop.counter }}
+                  </span>
+
+
+                  <div style="
+                    flex: 1;
+                  ">
+
+                    <p style="
+                      margin: 4px 0 0;
+                      color: #10277f;
+                      font-weight: 900;
+                    ">
+                      {{ question.prompt }}
+                    </p>
+
+
+                    <details style="
+                      margin-top: 12px;
+                    ">
+
+                      <summary style="
+                        color: #2956f5;
+                        font-size: 14px;
+                        font-weight: 900;
+                        cursor: pointer;
+                      ">
+                        Xem đáp án
+                      </summary>
+
+
+                      <div style="
+                        margin-top: 10px;
+                        padding: 14px;
+                        border-radius: 12px;
+                        background: #eef6ff;
+                      ">
+
+                        <strong style="
+                          color: #10277f;
+                        ">
+                          {{ question.answer }}
+                        </strong>
+
+
+                        {% if question.explanation %}
+
+                          <p style="
+                            margin: 6px 0 0;
+                            color: #607b99;
+                            line-height: 1.5;
+                          ">
+                            {{ question.explanation }}
+                          </p>
+
+                        {% endif %}
+
+                      </div>
+
+                    </details>
+
+                  </div>
+
+                </div>
+
+              </article>
+
+            {% endfor %}
+
+          </div>
+
+        </section>
+
+      {% endif %}
+
+    </section>
+
+
+
+    <!-- ===================================================
+         BOTTOM
+         =================================================== -->
+
+    <div style="
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+      margin-top: 20px;
+      padding: 20px 24px;
+      border: 1px solid #dce8f4;
+      border-radius: 20px;
+      background: #ffffff;
+    ">
+
+      <div>
+
+        <p style="
+          margin: 0;
+          color: #8495a6;
+          font-size: 12px;
+          font-weight: 900;
+        ">
+          TIẾN ĐỘ
+        </p>
+
+        <strong style="
+          display: block;
+          margin-top: 4px;
+          color: #2956f5;
+          font-size: 26px;
+          font-weight: 1000;
+        ">
+          {{ lesson_progress }}%
+        </strong>
+
+      </div>
+
+
+      <button
+        type="button"
+        style="
+          min-width: 220px;
+          min-height: 48px;
+          border: 0;
+          border-radius: 14px;
+          background: #2956f5;
+          color: #ffffff;
+          font: inherit;
+          font-weight: 900;
+          cursor: pointer;
+        "
+      >
+        Hoàn thành bài học
+      </button>
+
+    </div>
+
+  </main>
+
+</div>
+
+{% endblock %}

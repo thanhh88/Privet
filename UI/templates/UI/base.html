@@ -1,0 +1,19 @@
+{% load static %}
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#d9efff">
+  <meta name="description" content="Privet — Công cụ hỗ trợ cá nhân hóa quá trình học tiếng Nga.">
+  <title>{% block title %}Privet — Học tiếng Nga theo tốc độ riêng của bạn{% endblock %}</title>
+  <link rel="preload" href="{% static 'UI/fonts/nunito-vf.ttf' %}" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="{% static 'UI/vendor/bootstrap/bootstrap.min.css' %}">
+  <link rel="stylesheet" href="{% static 'UI/css/tokens.css' %}">
+  {% block page_styles %}{% endblock %}
+</head>
+<body class="privet-ui {% block body_class %}{% endblock %}">
+  <a class="privet-skip-link" href="#main-content">Đến nội dung chính</a>
+  {% block content %}{% endblock %}
+</body>
+</html>

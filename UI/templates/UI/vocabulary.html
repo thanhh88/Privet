@@ -1,0 +1,358 @@
+
+{% extends "UI/base.html" %}
+{% load static %}
+
+{% block title %}
+Từ vựng {{ selected_level }} | Privet
+{% endblock %}
+
+{% block body_class %}
+privet-lessons-page privet-vocabulary-page
+{% endblock %}
+
+{% block page_styles %}
+<link rel="stylesheet" href="{% static 'UI/css/lessons.css' %}">
+<link rel="stylesheet" href="{% static 'UI/css/vocabulary.css' %}">
+{% endblock %}
+
+{% block content %}
+
+<div
+  class="lessons-page voc-page"
+  id="vocabulary-app"
+  data-level="{{ selected_level }}"
+  data-items-url="{% url 'vocab:items' %}"
+  data-detail-url="{% url 'vocab:item_detail' 'WORD_ID' %}"
+  data-start-url="{% url 'vocab:start' 'WORD_ID' %}"
+  data-saved-status-url="{% url 'vocab:saved_status' %}"
+  data-saved-toggle-url="{% url 'vocab:saved_toggle' %}"
+>
+
+  <!-- HEADER -->
+  <header class="app-header">
+
+    <a
+      href="{% url 'UI:dashboard' %}"
+      class="app-brand"
+      aria-label="Privet — Trang chủ"
+    >
+      <img
+        src="{% static 'UI/images/privet-bear-logo.png' %}"
+        class="app-brand-logo"
+        alt=""
+        draggable="false"
+      >
+      <span>Privet</span>
+    </a>
+
+    <nav class="app-nav" aria-label="Điều hướng chính">
+      <a
+        href="{% url 'UI:dashboard' %}"
+        class="app-nav-link"
+      >Trang chủ</a>
+
+      <a
+        href="{% url 'UI:lessons' %}"
+        class="app-nav-link is-active"
+        aria-current="page"
+      >Bài học</a>
+
+      <a
+        href="{% url 'UI:test_hub' %}"
+        class="app-nav-link"
+      >Bài test</a>
+
+      <a
+        href="{% url 'UI:progress' %}"
+        class="app-nav-link"
+      >Tiến độ</a>
+    </nav>
+
+    <div class="app-user">
+      <span class="app-notification-dot" aria-hidden="true"></span>
+      <div class="app-avatar" title="{{ display_name }}">
+        {{ display_name|slice:":1"|upper }}
+      </div>
+    </div>
+
+  </header>
+
+  <main class="lessons-main" id="main-content">
+
+    <!-- CATEGORY SELECTOR -->
+    <section class="lesson-category-section">
+      <nav class="lesson-tabs" aria-label="Loại bài học">
+
+        <a
+          href="{% url 'UI:lessons' %}?category=grammar&amp;level=A1"
+          class="lesson-tab"
+        >Ngữ pháp</a>
+
+        <a
+          href="{% url 'UI:vocabulary' %}?level={{ selected_level }}"
+          class="lesson-tab is-active"
+          aria-current="page"
+        >Từ vựng</a>
+
+      </nav>
+    </section>
+
+    <div class="lessons-layout">
+
+      <!-- SIDEBAR -->
+      <aside class="lesson-sidebar" aria-label="Nhóm từ vựng">
+
+        <p class="lesson-sidebar-title">Nhóm nội dung</p>
+
+        <a href="{% url 'UI:alphabet' %}" class="level-button">
+          <span class="level-code" lang="ru">АБВ</span>
+          <span class="level-copy">
+            <strong>Alphabet</strong>
+            <small>33 chữ cái · 7 bài học</small>
+          </span>
+        </a>
+
+        <a
+          href="{% url 'UI:vocabulary' %}?level=A1"
+          class="level-button{% if selected_level == 'A1' %} is-active{% endif %}"
+          {% if selected_level == 'A1' %}aria-current="page"{% endif %}
+        >
+          <span class="level-code">A1</span>
+          <span class="level-copy">
+            <strong>Cơ bản</strong>
+            <small>Từ vựng nền tảng</small>
+          </span>
+        </a>
+
+        <a
+          href="{% url 'UI:vocabulary' %}?level=A2"
+          class="level-button{% if selected_level == 'A2' %} is-active{% endif %}"
+          {% if selected_level == 'A2' %}aria-current="page"{% endif %}
+        >
+          <span class="level-code">A2</span>
+          <span class="level-copy">
+            <strong>Sơ cấp</strong>
+            <small>Mở rộng từ vựng</small>
+          </span>
+        </a>
+
+        <a
+          href="{% url 'UI:vocabulary' %}?level=B1"
+          class="level-button{% if selected_level == 'B1' %} is-active{% endif %}"
+          {% if selected_level == 'B1' %}aria-current="page"{% endif %}
+        >
+          <span class="level-code">B1</span>
+          <span class="level-copy">
+            <strong>Mở rộng</strong>
+            <small>Đang chuẩn bị</small>
+          </span>
+        </a>
+
+        <div class="sidebar-note">
+          <img
+            src="{% static 'UI/images/privet-bear-logo.png' %}"
+            alt=""
+            draggable="false"
+          >
+          <p>
+            Chọn một thẻ để xem từ, lưu lại hoặc bắt đầu học nhé!
+          </p>
+        </div>
+
+      </aside>
+
+      <!-- VOCABULARY CONTENT -->
+      <section
+        class="lesson-content voc-content"
+        aria-labelledby="voc-heading"
+      >
+
+        <header class="voc-hero">
+          <div>
+            <p class="section-label">
+              TỪ VỰNG · {{ selected_level }}
+            </p>
+
+            <h1 id="voc-heading">
+              Kho từ vựng {{ selected_level }}
+            </h1>
+
+            <p class="voc-lead">
+              Chọn một từ để xem nghĩa, lưu vào danh sách yêu thích
+              hoặc thêm vào lịch ôn tập.
+            </p>
+          </div>
+
+          <div class="voc-hero-stat">
+            <strong id="voc-total">
+              {% if selected_level == 'B1' %}0{% else %}…{% endif %}
+            </strong>
+            <span>từ vựng</span>
+          </div>
+        </header>
+
+        {% if selected_level == 'B1' %}
+
+          <div class="voc-empty" role="status">
+            <div class="voc-empty-mark" aria-hidden="true">B1</div>
+
+            <h2>Kho từ B1 đang được chuẩn bị</h2>
+
+            <p>
+              Hiện Privet đã có danh sách A1 và A2.
+              Bạn có thể chọn A1 hoặc A2 ở bên trái để học từ ngay.
+            </p>
+
+            <a
+              class="voc-primary-link"
+              href="{% url 'UI:vocabulary' %}?level=A1"
+            >Xem từ vựng A1</a>
+          </div>
+
+        {% else %}
+
+          <div class="voc-toolbar">
+            <label class="voc-search-label" for="voc-search">
+              Tìm một từ
+            </label>
+
+            <div class="voc-search-wrap">
+              <span class="voc-search-icon" aria-hidden="true">⌕</span>
+
+              <input
+                type="search"
+                id="voc-search"
+                class="voc-search"
+                autocomplete="off"
+                maxlength="100"
+                placeholder="Nhập tiếng Nga, nghĩa Việt hoặc Anh…"
+              >
+            </div>
+
+            <div class="voc-toolbar-hint">
+              4 thẻ mỗi hàng · Chạm vào thẻ để xem chi tiết
+            </div>
+          </div>
+
+          <p
+            id="voc-status"
+            class="voc-status"
+            role="status"
+            aria-live="polite"
+          >Đang tải danh sách từ…</p>
+
+          <div
+            id="voc-grid"
+            class="voc-grid"
+            aria-label="Danh sách thẻ từ"
+            aria-busy="true"
+          ></div>
+
+          <div id="voc-pagination" class="voc-pagination" hidden>
+            <button
+              type="button"
+              class="voc-page-btn"
+              id="voc-prev"
+            >← Trang trước</button>
+
+            <span
+              id="voc-page-number"
+              class="voc-page-number"
+              aria-live="polite"
+            ></span>
+
+            <button
+              type="button"
+              class="voc-page-btn"
+              id="voc-next"
+            >Trang sau →</button>
+          </div>
+
+        {% endif %}
+
+      </section>
+    </div>
+  </main>
+
+  <input type="hidden" id="voc-csrf" value="{{ csrf_token }}">
+
+  <!-- WORD DETAIL -->
+  <dialog
+    id="voc-detail-dialog"
+    class="voc-dialog"
+    aria-labelledby="voc-detail-title"
+  >
+
+    <div class="voc-dialog-top">
+      <span class="voc-dialog-tag">THẺ TỪ VỰNG</span>
+
+      <button
+        type="button"
+        id="voc-close"
+        class="voc-close"
+        aria-label="Đóng cửa sổ"
+      >×</button>
+    </div>
+
+    <div class="voc-dialog-body">
+
+      <p id="voc-detail-level" class="voc-detail-level"></p>
+
+      <h2 id="voc-detail-title" lang="ru"></h2>
+
+      <p id="voc-detail-meaning" class="voc-detail-meaning"></p>
+
+      <p id="voc-detail-language" class="voc-detail-language"></p>
+
+      <div id="voc-example-box" class="voc-example-box" hidden>
+        <strong>Ví dụ</strong>
+        <p id="voc-example-ru" lang="ru"></p>
+        <p id="voc-example-vi"></p>
+      </div>
+
+      <!-- AUDIO PLACEHOLDER -->
+      <div
+        class="voc-audio-placeholder"
+        aria-label="Âm thanh sẽ được thêm sau"
+      >
+        <button
+          type="button"
+          class="voc-audio-btn"
+          disabled
+        >♪ Nghe phát âm</button>
+
+        <span>Audio sẽ được bổ sung sau</span>
+      </div>
+
+      <p id="voc-review-info" class="voc-review-info"></p>
+
+      <p
+        id="voc-detail-status"
+        class="voc-detail-status"
+        role="status"
+        aria-live="polite"
+      ></p>
+
+    </div>
+
+    <div class="voc-dialog-actions">
+      <button
+        type="button"
+        id="voc-detail-save"
+        class="voc-secondary-btn"
+        aria-pressed="false"
+      >☆ Lưu từ</button>
+
+      <button
+        type="button"
+        id="voc-start"
+        class="voc-primary-btn"
+      >Bắt đầu học</button>
+    </div>
+
+  </dialog>
+</div>
+
+<script src="{% static 'UI/js/vocabulary.js' %}" defer></script>
+
+{% endblock %}

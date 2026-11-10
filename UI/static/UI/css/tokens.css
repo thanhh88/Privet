@@ -1,0 +1,129 @@
+/* Privet UI foundations. Loaded after Bootstrap; shared by future screens. */
+@font-face {
+  font-family: "Nunito";
+  src: url("../fonts/nunito-vf.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 200 1000;
+  font-display: swap;
+}
+
+:root {
+  --privet-font: "Nunito", "Segoe UI", sans-serif;
+  --privet-blue: #2e4fe3;
+  --privet-blue-hover: #2443cc;
+  --privet-blue-active: #1e38b5;
+  --privet-blue-bright: #234bfa;
+  --privet-ink: #0a176b;
+  --privet-sky: #d9efff;
+  --privet-white: #fff;
+  --privet-red: #ce3029;
+  --privet-brown: #85502b;
+  --privet-focus: #142777;
+  --privet-radius-button: 1.7rem;
+}
+
+body.privet-ui {
+  margin: 0;
+  color: var(--privet-ink);
+  font-family: var(--privet-font);
+  font-weight: 600;
+  -webkit-font-smoothing: antialiased;
+}
+
+.privet-ui *,
+.privet-ui *::before,
+.privet-ui *::after {
+  box-sizing: border-box;
+}
+
+.privet-ui ::selection {
+  color: var(--privet-white);
+  background: var(--privet-blue);
+}
+
+.privet-ui a:focus-visible {
+  outline: 3px solid var(--privet-focus);
+  outline-offset: 5px;
+}
+
+.privet-skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 0.75rem;
+  left: 0.75rem;
+  padding: 0.75rem 1rem;
+  color: var(--privet-ink);
+  background: var(--privet-white);
+  border-radius: 0.75rem;
+  transform: translateY(-180%);
+}
+
+.privet-skip-link:focus {
+  transform: translateY(0);
+}
+
+.privet-illustration {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+/* Reusable button: the two landing actions intentionally have the same style. */
+.privet-ui .privet-btn {
+  --bs-btn-color: var(--privet-white);
+  --bs-btn-bg: var(--privet-blue);
+  --bs-btn-border-color: var(--privet-blue);
+  --bs-btn-hover-color: var(--privet-white);
+  --bs-btn-hover-bg: var(--privet-blue-hover);
+  --bs-btn-hover-border-color: var(--privet-blue-hover);
+  --bs-btn-active-color: var(--privet-white);
+  --bs-btn-active-bg: var(--privet-blue-active);
+  --bs-btn-active-border-color: var(--privet-blue-active);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3.5rem;
+  padding: 0.9rem 1.8rem;
+  border: 1px solid var(--privet-blue);
+  border-radius: var(--privet-radius-button);
+  box-shadow: 0 3px 0 var(--privet-blue-active);
+  color: var(--privet-white);
+  background: var(--privet-blue);
+  font-family: var(--privet-font);
+  font-weight: 800;
+  line-height: 1.25;
+  text-decoration: none;
+  transition: background-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+}
+
+.privet-ui .privet-btn:hover {
+  color: var(--privet-white);
+  background: var(--privet-blue-hover);
+  border-color: var(--privet-blue-hover);
+  transform: translateY(-1px);
+}
+
+.privet-ui .privet-btn:active {
+  color: var(--privet-white);
+  background: var(--privet-blue-active);
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--privet-blue-active);
+}
+
+.privet-ui .privet-btn:focus-visible {
+  outline: 3px solid var(--privet-focus);
+  outline-offset: 5px;
+  box-shadow: 0 0 0 3px var(--privet-white);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .privet-ui .privet-btn {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .privet-ui .privet-btn {
+    border: 2px solid ButtonText;
+  }
+}

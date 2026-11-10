@@ -88,4 +88,9 @@ urlpatterns = [
         views.assessment_result_view,
         name="assessment-result",
     ),
+    path(
+        "assessments/adaptive/start/",
+        views.start_adaptive_assessment_view,
+        name="adaptive-assessment-start",
+    ),
 ]

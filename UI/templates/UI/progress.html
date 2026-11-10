@@ -1,0 +1,496 @@
+{% extends "UI/base.html" %}
+{% load static %}
+
+{% block body_class %}
+privet-progress-page
+{% endblock %}
+
+
+{% block page_styles %}
+<link
+  rel="stylesheet"
+  href="{% static 'UI/css/progress.css' %}"
+>
+{% endblock %}
+
+
+{% block content %}
+
+<div class="progress-page">
+
+
+  <!-- =====================================================
+       HEADER
+       ===================================================== -->
+
+  <header class="progress-header">
+
+
+    <!-- BRAND -->
+
+    <a
+      href="{% url 'UI:dashboard' %}"
+      class="progress-brand"
+    >
+
+      <img
+        src="{% static 'UI/images/privet-bear-logo.png' %}"
+        class="progress-brand-logo"
+        alt=""
+        draggable="false"
+      >
+
+      <span>
+        Privet
+      </span>
+
+    </a>
+
+
+
+    <!-- NAVIGATION -->
+
+    <nav
+      class="progress-nav"
+      aria-label="Điều hướng chính"
+    >
+
+      <a
+        href="{% url 'UI:dashboard' %}"
+        class="progress-nav-link"
+      >
+        Trang chủ
+      </a>
+
+
+      <a
+        href="{% url 'UI:lessons' %}"
+        class="progress-nav-link"
+      >
+        Bài học
+      </a>
+
+
+      <a
+        href="{% url 'UI:test_hub' %}"
+        class="progress-nav-link"
+      >
+        Bài test
+      </a>
+
+
+      <a
+        href="{% url 'UI:progress' %}"
+        class="progress-nav-link is-active"
+      >
+        Tiến độ
+      </a>
+
+    </nav>
+
+
+
+    <!-- USER -->
+
+    <div class="progress-user">
+
+      <span
+        class="progress-notification-dot"
+        aria-hidden="true"
+      ></span>
+
+
+      <div
+        class="progress-avatar"
+        title="{{ display_name }}"
+      >
+        {{ display_name|slice:":1"|upper }}
+      </div>
+
+    </div>
+
+  </header>
+
+
+
+  <!-- =====================================================
+       MAIN
+       ===================================================== -->
+
+  <main class="progress-main">
+
+
+    <!-- ===================================================
+         ROW 1
+         OVERALL + SUMMARY
+         =================================================== -->
+
+    <section class="progress-top-grid">
+
+
+      <!-- ===============================================
+           OVERALL PROGRESS
+           =============================================== -->
+
+      <article class="progress-card overall-card">
+
+        <div class="overall-copy">
+
+          <p class="progress-card-label">
+            TIẾN ĐỘ TỔNG QUAN
+          </p>
+
+
+          <h1>
+            Bạn đang ở
+            <span>
+              {{ progress.current_level }}
+            </span>
+          </h1>
+
+
+          <p class="overall-description">
+            Tiếp tục hoàn thành bài học và luyện tập
+            để phát triển các kỹ năng tiếng Nga.
+          </p>
+
+
+          <div class="overall-lessons">
+
+            <strong>
+              {{ progress.completed_lessons }}
+            </strong>
+
+            <span>
+              / {{ progress.total_lessons }}
+              bài học đã hoàn thành
+            </span>
+
+          </div>
+
+        </div>
+
+
+
+        <!-- CIRCLE -->
+
+        <div
+          class="overall-circle"
+          style="--progress-value: {{ progress.overall_percent }}%;"
+        >
+
+          <div class="overall-circle-inner">
+
+            <strong>
+              {{ progress.overall_percent }}%
+            </strong>
+
+            <span>
+              Tổng thể
+            </span>
+
+          </div>
+
+        </div>
+
+      </article>
+
+
+
+      <!-- ===============================================
+           SUMMARY
+           =============================================== -->
+
+      <div class="progress-summary-grid">
+
+
+        <article class="summary-card">
+
+          <div class="summary-icon">
+            🔥
+          </div>
+
+          <div>
+
+            <strong>
+              {{ progress.streak_count }}
+            </strong>
+
+            <span>
+              ngày streak
+            </span>
+
+          </div>
+
+        </article>
+
+
+
+        <article class="summary-card">
+
+          <div class="summary-icon">
+            ✓
+          </div>
+
+          <div>
+
+            <strong>
+              {{ progress.questions_total }}
+            </strong>
+
+            <span>
+              câu đã làm
+            </span>
+
+          </div>
+
+        </article>
+
+
+
+        <article class="summary-card">
+
+          <div class="summary-icon">
+            ★
+          </div>
+
+          <div>
+
+            <strong>
+              {{ progress.skills_mastered }}
+              /
+              {{ progress.skills_total }}
+            </strong>
+
+            <span>
+              kỹ năng tốt
+            </span>
+
+          </div>
+
+        </article>
+
+      </div>
+
+    </section>
+
+
+
+    <!-- ===================================================
+         ROW 2
+         LEVEL + SKILLS + WEEK
+         =================================================== -->
+
+    <section class="progress-bottom-grid">
+
+
+      <!-- ===============================================
+           LEVELS
+           =============================================== -->
+
+      <article class="progress-card level-card">
+
+        <div class="card-heading">
+
+          <div>
+
+            <p class="progress-card-label">
+              LỘ TRÌNH
+            </p>
+
+            <h2>
+              Trình độ
+            </h2>
+
+          </div>
+
+        </div>
+
+
+        <div class="level-progress-list">
+
+          {% for level in level_progress %}
+
+            <div
+              class="level-progress-item{% if level.active %} is-active{% endif %}"
+            >
+
+              <div class="level-progress-top">
+
+                <div class="level-progress-name">
+
+                  <span class="level-badge">
+                    {{ level.code }}
+                  </span>
+
+                  <div>
+
+                    <strong>
+                      {{ level.name }}
+                    </strong>
+
+                    <small>
+                      {{ level.status }}
+                    </small>
+
+                  </div>
+
+                </div>
+
+
+                <strong class="level-percent">
+                  {{ level.percent }}%
+                </strong>
+
+              </div>
+
+
+              <div class="level-progress-track">
+
+                <div
+                  class="level-progress-fill"
+                  style="width: {{ level.percent }}%;"
+                ></div>
+
+              </div>
+
+            </div>
+
+          {% endfor %}
+
+        </div>
+
+      </article>
+
+
+
+      <!-- ===============================================
+           SKILLS
+           =============================================== -->
+
+      <article class="progress-card skills-card">
+
+        <div class="card-heading">
+
+          <div>
+
+            <p class="progress-card-label">
+              KỸ NĂNG
+            </p>
+
+            <h2>
+              Mức độ hiện tại
+            </h2>
+
+          </div>
+
+        </div>
+
+
+        <div class="skill-list">
+
+          {% for skill in skill_progress %}
+
+            <div class="skill-item">
+
+              <div class="skill-info">
+
+                <span>
+                  {{ skill.name }}
+                </span>
+
+                <strong>
+                  {{ skill.percent }}%
+                </strong>
+
+              </div>
+
+
+              <div class="skill-track">
+
+                <div
+                  class="skill-fill"
+                  style="width: {{ skill.percent }}%;"
+                ></div>
+
+              </div>
+
+            </div>
+
+          {% endfor %}
+
+        </div>
+
+      </article>
+
+
+
+      <!-- ===============================================
+           WEEKLY ACTIVITY
+           =============================================== -->
+
+      <article class="progress-card activity-card">
+
+        <div class="card-heading activity-heading">
+
+          <div>
+
+            <p class="progress-card-label">
+              HOẠT ĐỘNG
+            </p>
+
+            <h2>
+              Tuần này
+            </h2>
+
+          </div>
+
+
+          <span>
+            Số câu
+          </span>
+
+        </div>
+
+
+        <div class="activity-chart">
+
+          {% for item in weekly_activity %}
+
+            <div class="activity-column">
+
+              <div class="activity-bar-area">
+
+                <div
+                  class="activity-bar"
+                  style="height: {{ item.height }}%;"
+                  title="{{ item.questions }} câu"
+                ></div>
+
+              </div>
+
+
+              <span class="activity-number">
+                {{ item.questions }}
+              </span>
+
+
+              <small>
+                {{ item.day }}
+              </small>
+
+            </div>
+
+          {% endfor %}
+
+        </div>
+
+      </article>
+
+    </section>
+
+  </main>
+
+</div>
+
+{% endblock %}

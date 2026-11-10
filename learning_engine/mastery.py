@@ -70,6 +70,8 @@ class MasteryCalculation:
     avg_response_time_ms: Decimal | None
 
     last_evidence_at: datetime | None
+    last_review_evidence_at: datetime | None
+
     calculated_at: datetime
 
     algorithm_version: str
@@ -98,6 +100,8 @@ class SkillMasteryUpdateResult:
     avg_response_time_ms: Decimal | None
 
     last_evidence_at: datetime | None
+    last_review_evidence_at: datetime | None
+
     calculated_at: datetime
 
     algorithm_version: str
@@ -571,6 +575,65 @@ def _timedelta_days(delta):
         / _SECONDS_PER_DAY
     )
 
+def _derive_last_review_evidence_at(evidence):
+    """
+    Return the newest assessment timestamp that resets
+    the review clock for one Skill.
+
+    One completed assessment resets the clock when,
+    for that Skill:
+
+    - any evidence row is primary; OR
+    - summed snapshotted Skill weight in the session
+      is at least 1.0.
+
+    Low-weight secondary evidence alone must not
+    postpone review.
+
+    Evidence is grouped by (evidence_at, session_id)
+    because all rows from one completed assessment form
+    one historical evidence block.
+    """
+
+    blocks = {}
+
+    for row in evidence:
+        block_key = (
+            row.evidence_at,
+            row.session_id,
+        )
+
+        block = blocks.setdefault(
+            block_key,
+            {
+                "has_primary": False,
+                "total_weight": Decimal("0"),
+            },
+        )
+
+        if row.is_primary:
+            block["has_primary"] = True
+
+        block["total_weight"] += Decimal(
+            str(row.skill_weight)
+        )
+
+    qualifying_timestamps = [
+        evidence_at
+        for (
+            evidence_at,
+            _session_id,
+        ), block in blocks.items()
+        if (
+            block["has_primary"]
+            or block["total_weight"] >= Decimal("1.0")
+        )
+    ]
+
+    if not qualifying_timestamps:
+        return None
+
+    return max(qualifying_timestamps)
 
 def calculate_mastery(
     evidence,
@@ -578,27 +641,22 @@ def calculate_mastery(
     as_of=None,
 ):
     """
-    Calculate mastery and learner-state metrics from
-    SkillEvidence rows.
+    Calculate rule_v3 mastery and learner-state metrics
+    from SkillEvidence rows.
 
-    Historical mastery
-    ------------------
-    Evidence is evaluated at the newest evidence time:
+    rule_v3 mastery
+    ---------------
+    Mastery changes only when new assessment evidence
+    exists. Wall-clock time alone never changes mastery.
 
-        M_last =
-            (alpha * m0 + SUM(a_i * y_i))
-            /
-            (alpha + SUM(a_i))
+    Evidence from the same completed assessment is
+    aggregated into one session block.
 
-    where:
+    For each evidence row:
 
-        a_i =
-            w_i
-            * c_i
-            * 2 ^ (-delta_i / H)
-
-        delta_i =
-            last_evidence_at - evidence_at_i
+        y_i =
+            1 if correct
+            0 if incorrect
 
         c_i =
             1
@@ -606,28 +664,41 @@ def calculate_mastery(
             * (d_i - 0.5)
             * (2*y_i - 1)
 
-    Personalized inactivity decay
-    -----------------------------
-    If M_last > m0:
+        a_i =
+            w_i * c_i
 
-        M_current =
-            m0
-            + (M_last - m0)
-            * 2 ^ (-staleness / H)
+    For each session block:
 
-    where:
+        A =
+            SUM(a_i)
 
-        staleness =
-            as_of - last_evidence_at
+        Y =
+            SUM(a_i * y_i) / A
 
-    If M_last <= m0:
+        N <- N + A
 
-        M_current = M_last
+        K =
+            min(
+                1,
+                A * max(
+                    1 / (alpha + N),
+                    recency_k_min,
+                ),
+            )
 
-    Therefore inactivity can reduce previously
-    demonstrated mastery above the prior, but can
-    never improve a weak learner merely because no
-    new evidence was observed.
+        m <- m + K * (Y - m)
+
+    Before recency_k_min becomes active, this replay is
+    equivalent to the ordinary smoothed Beta mean.
+
+    Important:
+    - no historical wall-clock decay;
+    - no inactivity mastery decay;
+    - time is handled separately by review policy;
+    - questions from one assessment form one block;
+    - internal mastery_estimate always exists;
+    - mastery_score remains NULL while raw observation
+      count is below min_observations.
 
     Additional learner-state metrics
     --------------------------------
@@ -641,27 +712,27 @@ def calculate_mastery(
         weighted accuracy across all observations
 
     - recent_accuracy:
-        weighted accuracy across the 10 most
-        recent observations
+        weighted accuracy across the 10 most recent
+        observations
 
     - consecutive_errors:
-        trailing incorrect observations where
-        the Skill is primary or weight >= 0.5
+        trailing qualifying incorrect observations
 
     The function is pure:
     - no database writes;
-    - the caller's evidence collection is not mutated;
-    - internal mastery_estimate always exists;
-    - mastery_score is NULL while observation_count
-      is below the configured minimum.
+    - caller evidence is not mutated.
     """
 
-    # Copy so sorting below does not mutate
+    # Copy so canonical sorting below does not mutate
     # the caller's collection.
     evidence = list(evidence)
 
     if as_of is None:
         as_of = timezone.now()
+
+    # -----------------------------------------
+    # Configuration
+    # -----------------------------------------
 
     config = settings.MASTERY_RULE_V1
 
@@ -687,9 +758,9 @@ def calculate_mastery(
         )
     )
 
-    half_life_days = Decimal(
+    recency_k_min = Decimal(
         str(
-            config["half_life_days"]
+            config["recency_k_min"]
         )
     )
 
@@ -721,10 +792,14 @@ def calculate_mastery(
             "Mastery beta must not be negative."
         )
 
-    if half_life_days <= 0:
+    if not (
+        Decimal("0")
+        < recency_k_min
+        <= Decimal("1")
+    ):
         raise ValueError(
-            "Mastery half_life_days "
-            "must be positive."
+            "Mastery recency_k_min must be "
+            "in (0, 1]."
         )
 
     if min_observations < 1:
@@ -742,9 +817,10 @@ def calculate_mastery(
         for row in evidence
     }
 
-    # Empty evidence is valid cold start.
-    # Non-empty evidence must represent only
-    # one User x Skill calculation.
+    # Empty evidence is a valid cold start.
+    #
+    # Non-empty evidence must belong to exactly
+    # one Skill calculation.
     if len(skill_ids) > 1:
         raise ValueError(
             "calculate_mastery() requires "
@@ -764,11 +840,14 @@ def calculate_mastery(
                 "must be positive."
             )
 
-    # Canonical chronology:
+    # -----------------------------------------
+    # Canonical chronology
+    # -----------------------------------------
     #
     # assessment completion time
     # -> deterministic session tie-break
     # -> question order inside assessment
+
     evidence.sort(
         key=lambda row: (
             row.evidence_at,
@@ -778,16 +857,8 @@ def calculate_mastery(
     )
 
     # -----------------------------------------
-    # Historical anchor
+    # Latest evidence timestamp
     # -----------------------------------------
-    #
-    # Evidence history is evaluated at the moment
-    # of the newest valid evidence.
-    #
-    # Inactivity after that moment is handled
-    # separately below. This prevents weak learners
-    # from drifting upward toward the prior merely
-    # because time passes.
 
     last_evidence_at = None
 
@@ -802,21 +873,48 @@ def calculate_mastery(
                 "be later than as_of."
             )
 
+    last_review_evidence_at = (
+        _derive_last_review_evidence_at(
+            evidence
+        )
+    )
+
     # -----------------------------------------
-    # Mastery calculation
+    # Mastery calculation — rule_v3
     # -----------------------------------------
 
     with localcontext() as context:
         # Keep substantially more precision than
-        # the five decimal places stored in the DB.
+        # the five decimal places persisted in DB.
         context.prec = 40
 
-        numerator = (
-            alpha
-            * prior_mean
-        )
+        # Cold start is always valid.
+        #
+        # With no evidence:
+        # mastery_estimate = prior_mean
+        # mastery_score = None
+        mastery_estimate = prior_mean
+        mastery_score = None
 
-        denominator = alpha
+        # Weighted amount of evidence incorporated
+        # before/current block.
+        cumulative_weight = Decimal("0")
+
+        # Each entry:
+        #
+        # (
+        #     total effective block weight A,
+        #     correct effective weight,
+        # )
+        blocks = []
+
+        current_block_key = None
+        current_block_weight = Decimal("0")
+        current_block_correct_weight = Decimal("0")
+
+        # -------------------------------------
+        # Build session blocks
+        # -------------------------------------
 
         for row in evidence:
             weight = Decimal(
@@ -850,35 +948,6 @@ def calculate_mastery(
                     "Difficulty score must be "
                     "between 0 and 1."
                 )
-
-            # Historical evidence ages only relative
-            # to the newest evidence event.
-            #
-            # It must not continue to age every time
-            # learner state is merely recalculated.
-            historical_anchor = (
-                last_evidence_at
-                if last_evidence_at is not None
-                else as_of
-            )
-
-            age = (
-                historical_anchor
-                - row.evidence_at
-            )
-
-            if age < timedelta(0):
-                raise ValueError(
-                    "Evidence timestamp must not "
-                    "be later than the historical "
-                    "anchor."
-                )
-
-            age_days = (
-                _timedelta_days(
-                    age
-                )
-            )
 
             y = (
                 Decimal("1")
@@ -917,118 +986,145 @@ def calculate_mastery(
                 )
 
             # ---------------------------------
-            # Historical time decay
+            # Effective evidence weight
             #
-            # decay =
-            # 2 ^ (-delta_days / H)
+            # rule_v3 intentionally contains no
+            # wall-clock decay:
             #
-            # delta_days is measured from this
-            # evidence row to last_evidence_at.
-            # ---------------------------------
-
-            exponent = -(
-                age_days
-                / half_life_days
-            )
-
-            decay_factor = (
-                (
-                    Decimal("2").ln()
-                    * exponent
-                )
-                .exp()
-            )
-
-            # ---------------------------------
-            # Effective historical evidence weight
-            #
-            # a_i =
-            # w_i * c_i * decay_i
+            # a_i = w_i * c_i
             # ---------------------------------
 
             effective_weight = (
                 weight
                 * difficulty_factor
-                * decay_factor
             )
 
-            numerator += (
+            # evidence_at is assessment completion
+            # time. session_id provides deterministic
+            # separation/tie-break between sessions.
+            block_key = (
+                row.evidence_at,
+                row.session_id,
+            )
+
+            if (
+                current_block_key is not None
+                and block_key
+                != current_block_key
+            ):
+                blocks.append(
+                    (
+                        current_block_weight,
+                        current_block_correct_weight,
+                    )
+                )
+
+                current_block_weight = (
+                    Decimal("0")
+                )
+
+                current_block_correct_weight = (
+                    Decimal("0")
+                )
+
+            current_block_key = block_key
+
+            current_block_weight += (
+                effective_weight
+            )
+
+            current_block_correct_weight += (
                 effective_weight
                 * y
             )
 
-            denominator += (
-                effective_weight
-            )
-
-        # IMPORTANT:
-        # Everything from here onward is outside
-        # the evidence loop. This also makes cold
-        # start (evidence == []) valid.
-        mastery_at_last_evidence = (
-            numerator
-            / denominator
-        )
-
-        # -----------------------------------------
-        # Personalized inactivity decay
-        # -----------------------------------------
-        #
-        # The learner's latest observed mastery is
-        # the anchor.
-        #
-        # Knowledge above the prior may decay toward
-        # the prior during inactivity.
-        #
-        # Knowledge at or below the prior never
-        # improves merely because time passes.
-
-        mastery_estimate = (
-            mastery_at_last_evidence
-        )
-
-        if (
-            last_evidence_at is not None
-            and as_of > last_evidence_at
-            and mastery_at_last_evidence
-            > prior_mean
-        ):
-            inactivity_age = (
-                as_of
-                - last_evidence_at
-            )
-
-            inactivity_days = (
-                _timedelta_days(
-                    inactivity_age
-                )
-            )
-
-            inactivity_exponent = -(
-                inactivity_days
-                / half_life_days
-            )
-
-            inactivity_decay = (
+        # Flush final block.
+        if current_block_key is not None:
+            blocks.append(
                 (
-                    Decimal("2").ln()
-                    * inactivity_exponent
+                    current_block_weight,
+                    current_block_correct_weight,
                 )
-                .exp()
             )
 
+        # -------------------------------------
+        # Deterministic session-block replay
+        # -------------------------------------
+
+        for (
+            block_weight,
+            block_correct_weight,
+        ) in blocks:
+            if block_weight <= 0:
+                raise ValueError(
+                    "Mastery evidence block must "
+                    "have positive weight."
+                )
+
+            # Y
+            block_accuracy = (
+                block_correct_weight
+                / block_weight
+            )
+
+            # N <- N + A
+            cumulative_weight += (
+                block_weight
+            )
+
+            # Early-data Bayesian/Beta step.
+            beta_step = (
+                Decimal("1")
+                /
+                (
+                    alpha
+                    + cumulative_weight
+                )
+            )
+
+            # Later evidence must retain a minimum
+            # ability to update mastery.
+            step_size = max(
+                beta_step,
+                recency_k_min,
+            )
+
+            # K = A * step_size,
+            # capped so mastery cannot overshoot.
+            update_factor = (
+                block_weight
+                * step_size
+            )
+
+            update_factor = min(
+                Decimal("1"),
+                update_factor,
+            )
+
+            # m <- m + K * (Y - m)
             mastery_estimate = (
-                prior_mean
+                mastery_estimate
                 +
-                (
-                    mastery_at_last_evidence
-                    - prior_mean
+                update_factor
+                * (
+                    block_accuracy
+                    - mastery_estimate
                 )
-                * inactivity_decay
             )
 
-        mastery_score = None
+        # Defensive invariant.
+        if not (
+            Decimal("0")
+            <= mastery_estimate
+            <= Decimal("1")
+        ):
+            raise RuntimeError(
+                "Calculated mastery must remain "
+                "between 0 and 1."
+            )
 
+        # D3 sufficiency remains based on raw
+        # observation count for rule_v3 RC2.
         if (
             len(evidence)
             >= min_observations
@@ -1114,13 +1210,16 @@ def calculate_mastery(
             last_evidence_at
         ),
 
+        last_review_evidence_at=(
+            last_review_evidence_at
+        ),
+
         calculated_at=as_of,
 
         algorithm_version=(
             algorithm_version
         ),
     )
-
 
 @transaction.atomic
 def recalculate_learning_recency(
@@ -1342,6 +1441,10 @@ def _recalculate_skill_mastery_for_locked_user(
         calculation.last_evidence_at
     )
 
+    state.last_review_evidence_at = (
+        calculation.last_review_evidence_at
+    )
+
     state.calculated_at = (
         calculation.calculated_at
     )
@@ -1393,6 +1496,10 @@ def _recalculate_skill_mastery_for_locked_user(
 
         last_evidence_at=(
             state.last_evidence_at
+        ),
+
+        last_review_evidence_at=(
+            state.last_review_evidence_at
         ),
 
         calculated_at=(
@@ -1525,11 +1632,14 @@ def _skill_mastery_needs_refresh(
     Return True when a persisted SkillMastery snapshot
     must be rebuilt before it is used.
 
-    Refresh conditions:
+    rule_v3 refresh conditions:
     - no snapshot exists;
     - snapshot has never been calculated;
-    - snapshot uses an obsolete algorithm version;
-    - snapshot is at least refresh_after_hours old.
+    - snapshot uses an obsolete algorithm version.
+
+    Wall-clock age alone does not make a mastery
+    snapshot stale because rule_v3 mastery changes
+    only when assessment evidence changes.
 
     A caller must not request a point in time earlier
     than an already persisted calculation timestamp.
@@ -1545,16 +1655,6 @@ def _skill_mastery_needs_refresh(
         raise ValueError(
             "Mastery algorithm_version must not "
             "be blank."
-        )
-
-    refresh_after_hours = int(
-        config["refresh_after_hours"]
-    )
-
-    if refresh_after_hours < 1:
-        raise ValueError(
-            "Mastery refresh_after_hours must "
-            "be at least 1."
         )
 
     if state is None:
@@ -1578,17 +1678,7 @@ def _skill_mastery_needs_refresh(
     ):
         return True
 
-    refresh_interval = timedelta(
-        hours=refresh_after_hours
-    )
-
-    snapshot_age = (
-        as_of
-        - state.calculated_at
-    )
-
-    return snapshot_age >= refresh_interval
-
+    return False
 
 def ensure_skill_mastery_current(
     *,

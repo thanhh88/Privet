@@ -3,10 +3,11 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.db import transaction
 from django.test import TestCase
 from django.utils import timezone
 from django.conf import settings
+from io import StringIO
+from django.core.management import call_command
 
 from curriculum.models import (
     Lesson,
@@ -34,6 +35,7 @@ from learning_engine.services import (
     assemble_adaptive_assessment,
     assemble_diagnostic_assessment,
     submit_prior_russian_experience,
+    start_or_resume_adaptive_assessment,
 )
 from questionbank.models import (
     Question,
@@ -65,6 +67,7 @@ from learning_engine.question_selection import (
     build_question_candidates,
     rank_question_candidates,
     select_top_question_candidate,
+    rank_review_question_candidates,
 )
 from learning_engine.adaptive_assembly import (
     AssemblySkillCandidate,
@@ -72,6 +75,9 @@ from learning_engine.adaptive_assembly import (
 )
 from learning_engine.adaptive_preparation import (
     prepare_adaptive_assessment_candidates,
+)
+from learning_engine.adaptive_eligibility import (
+    resolve_adaptive_eligible_skill_ids,
 )
 from learning_engine.diagnostic_blueprint import (
     DIAGNOSTIC_BLUEPRINT_V1,
@@ -94,11 +100,56 @@ from learning_engine.beginner_path import (
     resolve_beginner_lesson,
 )
 from django.urls import reverse
+from django.db import (
+    IntegrityError,
+    transaction,
+)
+from learning_engine.review_policy import (
+    ReviewSkillCandidate,
+    build_review_due_pool,
+    determine_review_slot_count,
+    build_user_review_due_pool,
+    build_review_backlog_metrics,
+    build_user_review_backlog_metrics,
+)
 
 User = get_user_model()
 
 
 class SaveOptionAnswerTests(TestCase):
+    def test_skill_is_not_mastered_before_five_observations(
+            self,
+    ):
+        state = SkillMastery(
+            observation_count=4,
+            mastery_score=Decimal("0.95000"),
+        )
+
+        self.assertFalse(
+            state.is_mastered
+        )
+
+    def test_skill_is_mastered_only_at_five_observations_and_threshold(
+            self,
+    ):
+        mastered = SkillMastery(
+            observation_count=5,
+            mastery_score=Decimal("0.70000"),
+        )
+
+        below_threshold = SkillMastery(
+            observation_count=5,
+            mastery_score=Decimal("0.69999"),
+        )
+
+        self.assertTrue(
+            mastered.is_mastered
+        )
+
+        self.assertFalse(
+            below_threshold.is_mastered
+        )
+
     @classmethod
     def setUpTestData(cls):
         # -----------------------------------------
@@ -1578,6 +1629,39 @@ class SaveOptionAnswerTests(TestCase):
             Decimal("0.80000"),
         )
 
+    def test_skill_is_not_mastered_before_five_observations(
+            self,
+    ):
+        state = SkillMastery(
+            observation_count=4,
+            mastery_score=Decimal("0.95000"),
+        )
+
+        self.assertFalse(
+            state.is_mastered
+        )
+
+    def test_skill_is_mastered_only_at_five_observations_and_threshold(
+            self,
+    ):
+        mastered = SkillMastery(
+            observation_count=5,
+            mastery_score=Decimal("0.70000"),
+        )
+
+        below_threshold = SkillMastery(
+            observation_count=5,
+            mastery_score=Decimal("0.69999"),
+        )
+
+        self.assertTrue(
+            mastered.is_mastered
+        )
+
+        self.assertFalse(
+            below_threshold.is_mastered
+        )
+
     def test_recalculate_mastery_updates_same_snapshot(self):
         save_option_answer(
             user=self.user,
@@ -1641,6 +1725,26 @@ class SaveOptionAnswerTests(TestCase):
         self.assertEqual(
             second.observation_count,
             1,
+        )
+
+        self.assertEqual(
+            first.last_review_evidence_at,
+            as_of,
+        )
+
+        self.assertEqual(
+            second.last_review_evidence_at,
+            as_of,
+        )
+
+        state_after = SkillMastery.objects.get(
+            user=self.user,
+            skill=self.skill,
+        )
+
+        self.assertEqual(
+            state_after.last_review_evidence_at,
+            as_of,
         )
 
         self.assertEqual(
@@ -1724,6 +1828,76 @@ class SaveOptionAnswerTests(TestCase):
 
         self.assertIsNone(
             state.last_evidence_at
+        )
+
+        self.assertIsNone(
+            state.last_review_evidence_at
+        )
+
+    def test_backfill_review_evidence_at_rebuilds_from_history(
+            self,
+    ):
+        save_option_answer(
+            user=self.user,
+            session_question_id=(
+                self.session_question.pk
+            ),
+            selected_option_key="B",
+        )
+
+        complete_session(
+            user=self.user,
+            session_id=self.session.pk,
+        )
+
+        self.session.refresh_from_db()
+
+        state = SkillMastery.objects.get(
+            user=self.user,
+            skill=self.skill,
+        )
+
+        # The normal completion pipeline has already
+        # derived the review timestamp from history.
+        self.assertEqual(
+            state.last_review_evidence_at,
+            self.session.ended_at,
+        )
+
+        # Simulate a pre-D2.2 historical row created
+        # before last_review_evidence_at existed.
+        SkillMastery.objects.filter(
+            pk=state.pk,
+        ).update(
+            last_review_evidence_at=None,
+        )
+
+        state.refresh_from_db()
+
+        self.assertIsNone(
+            state.last_review_evidence_at
+        )
+
+        stdout = StringIO()
+
+        call_command(
+            "backfill_review_evidence_at",
+            stdout=stdout,
+        )
+
+        state.refresh_from_db()
+
+        # Command must reconstruct the value from
+        # authoritative assessment history, not from
+        # the previous SkillMastery snapshot.
+        self.assertEqual(
+            state.last_review_evidence_at,
+            self.session.ended_at,
+        )
+
+        self.assertIn(
+            "Rebuilt",
+            stdout.getvalue(),
         )
 
     def test_abandon_assessment_does_not_recalculate_mastery(
@@ -2101,6 +2275,233 @@ class AssessmentSessionServiceTests(TestCase):
             session.ended_at
         )
 
+    def test_unviewed_diagnostic_question_does_not_count_as_mastery_evidence(
+            self,
+    ):
+        topic = Topic.objects.create(
+            topic_name="F1 Diagnostic Unviewed",
+            category="grammar",
+            display_order=30100,
+            is_active=True,
+        )
+
+        skill = Skill.objects.create(
+            topic=topic,
+            skill_code="F1-DIAG-UNVIEWED",
+            skill_name="F1 Diagnostic Unviewed Skill",
+            cefr_level="A1",
+            is_extension=False,
+            display_order=1,
+            is_active=True,
+        )
+
+        question = Question.objects.create(
+            source_id="F1-DIAG-UNVIEWED-Q1",
+            question_type="multiple_choice",
+            item_format="single_choice",
+            question_text=(
+                "F1 diagnostic unviewed question."
+            ),
+            cefr_level="A1",
+            is_extension=False,
+            difficulty_score=Decimal("0.5000"),
+            correct_answer=None,
+            accepted_answers=None,
+            explanation=None,
+            audio_url=None,
+            is_active=True,
+        )
+
+        QuestionSkill.objects.create(
+            question=question,
+            skill=skill,
+            is_primary=True,
+            weight=Decimal("1.00000"),
+        )
+
+        started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.DIAGNOSTIC,
+        )
+
+        added = add_question_to_session(
+            user=self.user,
+            session_id=started.session_id,
+            question_id=question.pk,
+        )
+
+        session_question = SessionQuestion.objects.get(
+            pk=added.session_question_id
+        )
+
+        # Important:
+        # no mark_session_question_viewed()
+        # no save_option_answer()
+        self.assertIsNone(
+            session_question.first_viewed_at
+        )
+
+        complete_session(
+            user=self.user,
+            session_id=started.session_id,
+        )
+
+        state = SkillMastery.objects.get(
+            user=self.user,
+            skill=skill,
+        )
+
+        # Skill is recalculated because it existed in
+        # the frozen assessment snapshot, but the
+        # unviewed Question contributes no evidence.
+        self.assertEqual(
+            state.observation_count,
+            0,
+        )
+
+        self.assertEqual(
+            state.correct_attempts,
+            0,
+        )
+
+        self.assertIsNone(
+            state.mastery_score
+        )
+
+        self.assertIsNone(
+            state.last_evidence_at
+        )
+
+        self.assertFalse(
+            state.is_mastered
+        )
+
+    def test_three_diagnostic_observations_persist_score_but_do_not_mark_skill_mastered(
+            self,
+    ):
+        topic = Topic.objects.create(
+            topic_name="F1 Diagnostic Sufficiency",
+            category="grammar",
+            display_order=30101,
+            is_active=True,
+        )
+
+        skill = Skill.objects.create(
+            topic=topic,
+            skill_code="F1-DIAG-SUFFICIENCY",
+            skill_name="F1 Diagnostic Sufficiency Skill",
+            cefr_level="A1",
+            is_extension=False,
+            display_order=1,
+            is_active=True,
+        )
+
+        question = Question.objects.create(
+            source_id="F1-DIAG-SUFFICIENCY-Q1",
+            question_type="multiple_choice",
+            item_format="single_choice",
+            question_text=(
+                "F1 diagnostic sufficiency question."
+            ),
+            cefr_level="A1",
+            is_extension=False,
+            difficulty_score=Decimal("0.5000"),
+            correct_answer=None,
+            accepted_answers=None,
+            explanation=None,
+            audio_url=None,
+            is_active=True,
+        )
+
+        QuestionSkill.objects.create(
+            question=question,
+            skill=skill,
+            is_primary=True,
+            weight=Decimal("1.00000"),
+        )
+
+        QuestionOption.objects.create(
+            question=question,
+            option_key="A",
+            option_text="Wrong",
+            misconception_code="f1_wrong",
+            is_correct=False,
+            display_order=1,
+        )
+
+        QuestionOption.objects.create(
+            question=question,
+            option_key="B",
+            option_text="Correct",
+            misconception_code=None,
+            is_correct=True,
+            display_order=2,
+        )
+
+        # Three independent completed diagnostic
+        # assessments = three valid observations.
+        for _ in range(3):
+            started = start_session(
+                user=self.user,
+                mode=AssessmentSession.Mode.DIAGNOSTIC,
+            )
+
+            added = add_question_to_session(
+                user=self.user,
+                session_id=started.session_id,
+                question_id=question.pk,
+            )
+
+            save_option_answer(
+                user=self.user,
+                session_question_id=(
+                    added.session_question_id
+                ),
+                selected_option_key="B",
+            )
+
+            complete_session(
+                user=self.user,
+                session_id=started.session_id,
+            )
+
+        state = SkillMastery.objects.get(
+            user=self.user,
+            skill=skill,
+        )
+
+        self.assertEqual(
+            state.observation_count,
+            3,
+        )
+
+        self.assertEqual(
+            state.correct_attempts,
+            3,
+        )
+
+        # D3:
+        # n >= 3 allows persisted mastery_score.
+        self.assertIsNotNone(
+            state.mastery_score
+        )
+
+        self.assertGreaterEqual(
+            state.mastery_score,
+            Decimal("0.70"),
+        )
+
+        # But "mastered" requires:
+        #
+        # n >= 5
+        # AND mastery_score >= .70
+        #
+        # Placement must not overclaim mastery after
+        # only three observations.
+        self.assertFalse(
+            state.is_mastered
+        )
+
     def test_lesson_mode_is_not_supported(self):
         with self.assertRaises(
             LearningServiceError
@@ -2159,6 +2560,290 @@ class AssessmentSessionServiceTests(TestCase):
         )
         self.assertIsNotNone(
             session.ended_at
+        )
+
+    def test_diagnostic_completion_updates_grammar_mastery_but_not_vocabulary_mastery(
+            self,
+    ):
+        grammar_topic = Topic.objects.create(
+            topic_name="F1 Diagnostic Grammar",
+            category="grammar",
+            display_order=30001,
+            is_active=True,
+        )
+
+        vocabulary_topic = Topic.objects.create(
+            topic_name="F1 Diagnostic Vocabulary",
+            category="vocabulary",
+            display_order=30002,
+            is_active=True,
+        )
+
+        grammar_skill = Skill.objects.create(
+            topic=grammar_topic,
+            skill_code="F1-DIAG-GRAMMAR",
+            skill_name="F1 Diagnostic Grammar Skill",
+            cefr_level="A1",
+            is_extension=False,
+            display_order=1,
+            is_active=True,
+        )
+
+        vocabulary_skill = Skill.objects.create(
+            topic=vocabulary_topic,
+            skill_code="F1-DIAG-VOCAB",
+            skill_name="F1 Diagnostic Vocabulary Skill",
+            cefr_level="A1",
+            is_extension=False,
+            display_order=1,
+            is_active=True,
+        )
+
+        question = Question.objects.create(
+            source_id="F1-DIAG-Q1",
+            question_type="multiple_choice",
+            item_format="single_choice",
+            question_text=(
+                "F1 diagnostic multi-skill question."
+            ),
+            cefr_level="A1",
+            is_extension=False,
+            difficulty_score=Decimal("0.5000"),
+            correct_answer=None,
+            accepted_answers=None,
+            explanation=None,
+            audio_url=None,
+            is_active=True,
+        )
+
+        # One historical Question contains both mappings.
+        #
+        # Grammar is primary; Vocabulary is secondary.
+        # Total weight = 1.
+        QuestionSkill.objects.create(
+            question=question,
+            skill=grammar_skill,
+            is_primary=True,
+            weight=Decimal("0.50000"),
+        )
+
+        QuestionSkill.objects.create(
+            question=question,
+            skill=vocabulary_skill,
+            is_primary=False,
+            weight=Decimal("0.50000"),
+        )
+
+        QuestionOption.objects.create(
+            question=question,
+            option_key="A",
+            option_text="Wrong",
+            misconception_code="f1_wrong",
+            is_correct=False,
+            display_order=1,
+        )
+
+        QuestionOption.objects.create(
+            question=question,
+            option_key="B",
+            option_text="Correct",
+            misconception_code=None,
+            is_correct=True,
+            display_order=2,
+        )
+
+        started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.DIAGNOSTIC,
+        )
+
+        added = add_question_to_session(
+            user=self.user,
+            session_id=started.session_id,
+            question_id=question.pk,
+        )
+
+        save_option_answer(
+            user=self.user,
+            session_question_id=(
+                added.session_question_id
+            ),
+            selected_option_key="B",
+        )
+
+        complete_session(
+            user=self.user,
+            session_id=started.session_id,
+        )
+
+        # Grammar is valid diagnostic mastery evidence.
+        grammar_state = SkillMastery.objects.get(
+            user=self.user,
+            skill=grammar_skill,
+        )
+
+        self.assertEqual(
+            grammar_state.observation_count,
+            1,
+        )
+
+        self.assertEqual(
+            grammar_state.correct_attempts,
+            1,
+        )
+
+        # n < 3 remains insufficient for persisted
+        # mastery_score under D3.
+        self.assertIsNone(
+            grammar_state.mastery_score
+        )
+
+        # Vocabulary is outside Grammar Mastery scope.
+        self.assertFalse(
+            SkillMastery.objects.filter(
+                user=self.user,
+                skill=vocabulary_skill,
+            ).exists()
+        )
+
+    def test_adaptive_completion_still_recalculates_all_snapshot_skills(
+            self,
+    ):
+        grammar_topic = Topic.objects.create(
+            topic_name="F1 Adaptive Grammar",
+            category="grammar",
+            display_order=30003,
+            is_active=True,
+        )
+
+        vocabulary_topic = Topic.objects.create(
+            topic_name="F1 Adaptive Vocabulary",
+            category="vocabulary",
+            display_order=30004,
+            is_active=True,
+        )
+
+        grammar_skill = Skill.objects.create(
+            topic=grammar_topic,
+            skill_code="F1-ADAPT-GRAMMAR",
+            skill_name="F1 Adaptive Grammar Skill",
+            cefr_level="A1",
+            is_extension=False,
+            display_order=1,
+            is_active=True,
+        )
+
+        vocabulary_skill = Skill.objects.create(
+            topic=vocabulary_topic,
+            skill_code="F1-ADAPT-VOCAB",
+            skill_name="F1 Adaptive Vocabulary Skill",
+            cefr_level="A1",
+            is_extension=False,
+            display_order=1,
+            is_active=True,
+        )
+
+        question = Question.objects.create(
+            source_id="F1-ADAPT-Q1",
+            question_type="multiple_choice",
+            item_format="single_choice",
+            question_text=(
+                "F1 adaptive multi-skill question."
+            ),
+            cefr_level="A1",
+            is_extension=False,
+            difficulty_score=Decimal("0.5000"),
+            correct_answer=None,
+            accepted_answers=None,
+            explanation=None,
+            audio_url=None,
+            is_active=True,
+        )
+
+        QuestionSkill.objects.create(
+            question=question,
+            skill=grammar_skill,
+            is_primary=True,
+            weight=Decimal("0.50000"),
+        )
+
+        QuestionSkill.objects.create(
+            question=question,
+            skill=vocabulary_skill,
+            is_primary=False,
+            weight=Decimal("0.50000"),
+        )
+
+        QuestionOption.objects.create(
+            question=question,
+            option_key="A",
+            option_text="Wrong",
+            misconception_code="f1_wrong",
+            is_correct=False,
+            display_order=1,
+        )
+
+        QuestionOption.objects.create(
+            question=question,
+            option_key="B",
+            option_text="Correct",
+            misconception_code=None,
+            is_correct=True,
+            display_order=2,
+        )
+
+        started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        added = add_question_to_session(
+            user=self.user,
+            session_id=started.session_id,
+            question_id=question.pk,
+        )
+
+        save_option_answer(
+            user=self.user,
+            session_question_id=(
+                added.session_question_id
+            ),
+            selected_option_key="B",
+        )
+
+        complete_session(
+            user=self.user,
+            session_id=started.session_id,
+        )
+
+        grammar_state = SkillMastery.objects.get(
+            user=self.user,
+            skill=grammar_skill,
+        )
+
+        vocabulary_state = SkillMastery.objects.get(
+            user=self.user,
+            skill=vocabulary_skill,
+        )
+
+        self.assertEqual(
+            grammar_state.observation_count,
+            1,
+        )
+
+        self.assertEqual(
+            vocabulary_state.observation_count,
+            1,
+        )
+
+        self.assertEqual(
+            grammar_state.correct_attempts,
+            1,
+        )
+
+        self.assertEqual(
+            vocabulary_state.correct_attempts,
+            1,
         )
 
     def test_abandon_active_session(self):
@@ -2246,6 +2931,149 @@ class AssessmentSessionServiceTests(TestCase):
             session.ended_at
         )
 
+    def test_start_same_mode_returns_existing_active_session(
+            self,
+    ):
+        first = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        second = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        self.assertEqual(
+            second.session_id,
+            first.session_id,
+        )
+
+        self.assertEqual(
+            second.mode,
+            AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        self.assertEqual(
+            AssessmentSession.objects.filter(
+                user=self.user,
+                status=AssessmentSession.Status.ACTIVE,
+            ).count(),
+            1,
+        )
+
+    def test_start_different_mode_is_rejected_while_active(
+            self,
+    ):
+        first = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        with self.assertRaises(
+                LearningServiceError
+        ):
+            start_session(
+                user=self.user,
+                mode=AssessmentSession.Mode.DIAGNOSTIC,
+            )
+
+        active = AssessmentSession.objects.get(
+            pk=first.session_id
+        )
+
+        self.assertEqual(
+            active.mode,
+            AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        self.assertEqual(
+            active.status,
+            AssessmentSession.Status.ACTIVE,
+        )
+
+        self.assertEqual(
+            AssessmentSession.objects.filter(
+                user=self.user,
+                status=AssessmentSession.Status.ACTIVE,
+            ).count(),
+            1,
+        )
+
+    def test_database_rejects_second_active_session_for_same_user(
+            self,
+    ):
+        first = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        self.assertTrue(
+            AssessmentSession.objects.filter(
+                pk=first.session_id,
+                status=AssessmentSession.Status.ACTIVE,
+            ).exists()
+        )
+
+        # Direct ORM write deliberately bypasses
+        # start_session().
+        #
+        # DB itself must still protect the invariant.
+        with self.assertRaises(
+                IntegrityError
+        ):
+            with transaction.atomic():
+                AssessmentSession.objects.create(
+                    user=self.user,
+                    mode=AssessmentSession.Mode.DIAGNOSTIC,
+                    status=AssessmentSession.Status.ACTIVE,
+                    ended_at=None,
+                )
+
+        self.assertEqual(
+            AssessmentSession.objects.filter(
+                user=self.user,
+                status=AssessmentSession.Status.ACTIVE,
+            ).count(),
+            1,
+        )
+
+    def test_new_session_can_start_after_previous_session_finishes(
+            self,
+    ):
+        first = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        complete_session(
+            user=self.user,
+            session_id=first.session_id,
+        )
+
+        second = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.DIAGNOSTIC,
+        )
+
+        self.assertNotEqual(
+            first.session_id,
+            second.session_id,
+        )
+
+        self.assertEqual(
+            second.mode,
+            AssessmentSession.Mode.DIAGNOSTIC,
+        )
+
+        self.assertEqual(
+            AssessmentSession.objects.filter(
+                user=self.user,
+                status=AssessmentSession.Status.ACTIVE,
+            ).count(),
+            1,
+        )
+
 
 class MasteryCalculationTests(TestCase):
     def setUp(self):
@@ -2261,11 +3089,21 @@ class MasteryCalculationTests(TestCase):
         days_ago=0,
         is_primary=True,
         active_response_time_ms=0,
+        session_id=None,
+        sequence_number=None,
     ):
         return SkillEvidence(
             session_question_id=index,
-            session_id=index,
-            sequence_number=index,
+            session_id=(
+                index
+                if session_id is None
+                else session_id
+            ),
+            sequence_number=(
+                index
+                if sequence_number is None
+                else sequence_number
+            ),
 
             question_id=index,
             source_id=f"CALC-{index}",
@@ -2297,6 +3135,160 @@ class MasteryCalculationTests(TestCase):
 
             final_attempt_id=index,
             final_attempt_number=1,
+        )
+
+    def test_early_session_updates_match_beta_batch_mean(
+            self,
+    ):
+        evidence = [
+            # Session 100:
+            # 1 correct + 1 incorrect
+            self.make_evidence(
+                index=1,
+                session_id=100,
+                sequence_number=1,
+                is_correct=True,
+            ),
+            self.make_evidence(
+                index=2,
+                session_id=100,
+                sequence_number=2,
+                is_correct=False,
+            ),
+
+            # Session 200:
+            # 1 correct
+            self.make_evidence(
+                index=3,
+                session_id=200,
+                sequence_number=1,
+                is_correct=True,
+            ),
+        ]
+
+        result = calculate_mastery(
+            evidence,
+            as_of=self.as_of,
+        )
+
+        # alpha = 2
+        # prior_mean = 0.5
+        #
+        # Three unit-weight observations:
+        # correct, incorrect, correct
+        #
+        # Beta batch mean:
+        #
+        # (2 * 0.5 + 2) / (2 + 3)
+        # = 3 / 5
+        # = 0.6
+        #
+        # rule_v3 must reproduce this exactly while
+        # the recency floor K_min is not active.
+        self.assertEqual(
+            result.mastery_estimate,
+            Decimal("0.6"),
+        )
+
+        self.assertEqual(
+            result.mastery_score,
+            Decimal("0.60000"),
+        )
+
+    def test_large_session_block_keeps_mastery_bounded(
+            self,
+    ):
+        evidence = [
+            self.make_evidence(
+                index=index,
+                session_id=100,
+                sequence_number=index,
+                is_correct=True,
+            )
+            for index in range(1, 21)
+        ]
+
+        result = calculate_mastery(
+            evidence,
+            as_of=self.as_of,
+        )
+
+        # rule_v3 safety invariant:
+        #
+        # A large evidence block may make the raw
+        # A * K term exceed 1. The effective update
+        # factor must therefore be capped at 1.
+        #
+        # Mastery must always remain a probability.
+        self.assertGreaterEqual(
+            result.mastery_estimate,
+            Decimal("0"),
+        )
+
+        self.assertLessEqual(
+            result.mastery_estimate,
+            Decimal("1"),
+        )
+
+    def test_same_session_question_order_does_not_change_mastery(
+            self,
+    ):
+        first_order = [
+            self.make_evidence(
+                index=1,
+                session_id=100,
+                sequence_number=1,
+                is_correct=True,
+                weight="0.70",
+                difficulty="0.75",
+            ),
+            self.make_evidence(
+                index=2,
+                session_id=100,
+                sequence_number=2,
+                is_correct=False,
+                weight="1.00",
+                difficulty="0.25",
+            ),
+        ]
+
+        reversed_order = [
+            self.make_evidence(
+                index=1,
+                session_id=100,
+                sequence_number=2,
+                is_correct=True,
+                weight="0.70",
+                difficulty="0.75",
+            ),
+            self.make_evidence(
+                index=2,
+                session_id=100,
+                sequence_number=1,
+                is_correct=False,
+                weight="1.00",
+                difficulty="0.25",
+            ),
+        ]
+
+        first_result = calculate_mastery(
+            first_order,
+            as_of=self.as_of,
+        )
+
+        reversed_result = calculate_mastery(
+            reversed_order,
+            as_of=self.as_of,
+        )
+
+        # rule_v3 session-block invariant:
+        #
+        # Questions belonging to the same completed
+        # assessment form one evidence block.
+        # Their internal order must not affect mastery.
+        self.assertEqual(
+            first_result.mastery_estimate,
+            reversed_result.mastery_estimate,
         )
 
     def test_cold_start_uses_prior_but_stores_null(self):
@@ -2349,6 +3341,90 @@ class MasteryCalculationTests(TestCase):
             result.mastery_score
         )
 
+    def test_late_incorrect_evidence_cannot_increase_mastery(
+            self,
+    ):
+        old_evidence = [
+            self.make_evidence(
+                index=index,
+                is_correct=False,
+                days_ago=21,
+            )
+            for index in range(1, 11)
+        ]
+
+        before = calculate_mastery(
+            old_evidence,
+            as_of=self.as_of,
+        )
+
+        new_incorrect = self.make_evidence(
+            index=11,
+            is_correct=False,
+            days_ago=0,
+        )
+
+        after = calculate_mastery(
+            [
+                *old_evidence,
+                new_incorrect,
+            ],
+            as_of=self.as_of,
+        )
+
+        # Fundamental mastery invariant:
+        #
+        # Adding new incorrect assessment evidence
+        # must never improve the learner's estimated
+        # mastery of the Skill.
+        self.assertLessEqual(
+            after.mastery_estimate,
+            before.mastery_estimate,
+        )
+
+    def test_time_alone_does_not_change_mastery(
+            self,
+    ):
+        evidence = [
+            self.make_evidence(
+                index=index,
+                is_correct=True,
+                days_ago=0,
+            )
+            for index in range(1, 6)
+        ]
+
+        now = calculate_mastery(
+            evidence,
+            as_of=self.as_of,
+        )
+
+        much_later = calculate_mastery(
+            evidence,
+            as_of=(
+                    self.as_of
+                    + timedelta(days=60)
+            ),
+        )
+
+        # rule_v3 invariant:
+        #
+        # Wall-clock time alone must not change
+        # demonstrated mastery.
+        #
+        # Time determines when the Skill should
+        # return for review. Only new assessment
+        # evidence may change mastery.
+        self.assertEqual(
+            much_later.mastery_estimate,
+            now.mastery_estimate,
+        )
+
+        self.assertEqual(
+            much_later.mastery_score,
+            now.mastery_score,
+        )
+
     def test_three_correct_observations_store_mastery(self):
         evidence = [
             self.make_evidence(
@@ -2379,6 +3455,65 @@ class MasteryCalculationTests(TestCase):
         self.assertEqual(
             result.observation_count,
             3,
+        )
+
+    def test_new_correct_evidence_cannot_decrease_mastery(
+            self,
+    ):
+        old_evidence = [
+            self.make_evidence(
+                index=1,
+                is_correct=True,
+                days_ago=21,
+            ),
+            self.make_evidence(
+                index=2,
+                is_correct=False,
+                days_ago=21,
+            ),
+            self.make_evidence(
+                index=3,
+                is_correct=True,
+                days_ago=21,
+            ),
+            self.make_evidence(
+                index=4,
+                is_correct=True,
+                days_ago=21,
+            ),
+            self.make_evidence(
+                index=5,
+                is_correct=False,
+                days_ago=21,
+            ),
+        ]
+
+        before = calculate_mastery(
+            old_evidence,
+            as_of=self.as_of,
+        )
+
+        new_correct = self.make_evidence(
+            index=6,
+            is_correct=True,
+            days_ago=0,
+        )
+
+        after = calculate_mastery(
+            [
+                *old_evidence,
+                new_correct,
+            ],
+            as_of=self.as_of,
+        )
+
+        # Fundamental mastery invariant:
+        #
+        # New correct assessment evidence must
+        # never reduce estimated mastery.
+        self.assertGreaterEqual(
+            after.mastery_estimate,
+            before.mastery_estimate,
         )
 
     def test_no_inactivity_preserves_mastery_at_last_evidence(
@@ -2419,7 +3554,7 @@ class MasteryCalculationTests(TestCase):
             self.as_of,
         )
 
-    def test_strong_mastery_decays_from_last_evidence(
+    def test_strong_mastery_does_not_decay_with_time(
             self,
     ):
         evidence = [
@@ -2442,7 +3577,7 @@ class MasteryCalculationTests(TestCase):
             as_of=self.as_of,
         )
 
-        after_one_half_life = calculate_mastery(
+        after_21_days = calculate_mastery(
             evidence,
             as_of=(
                     self.as_of
@@ -2450,7 +3585,7 @@ class MasteryCalculationTests(TestCase):
             ),
         )
 
-        after_two_half_lives = calculate_mastery(
+        after_42_days = calculate_mastery(
             evidence,
             as_of=(
                     self.as_of
@@ -2458,36 +3593,30 @@ class MasteryCalculationTests(TestCase):
             ),
         )
 
+        # rule_v3:
+        #
+        # Demonstrated mastery does not decay merely
+        # because wall-clock time passes.
+        #
+        # Time is handled by review scheduling instead.
         self.assertEqual(
             at_last_evidence.mastery_score,
             Decimal("0.80000"),
         )
 
-        # One half-life applies only to the amount
-        # above the prior:
-        #
-        # .5 + (.8 - .5) * .5 = .65
         self.assertEqual(
-            after_one_half_life.mastery_score,
-            Decimal("0.65000"),
+            after_21_days.mastery_score,
+            at_last_evidence.mastery_score,
         )
 
-        # Two half-lives:
-        #
-        # .5 + (.8 - .5) * .25 = .575
         self.assertEqual(
-            after_two_half_lives.mastery_score,
-            Decimal("0.57500"),
+            after_42_days.mastery_score,
+            at_last_evidence.mastery_score,
         )
 
-        self.assertGreater(
+        self.assertEqual(
+            after_42_days.mastery_estimate,
             at_last_evidence.mastery_estimate,
-            after_one_half_life.mastery_estimate,
-        )
-
-        self.assertGreater(
-            after_one_half_life.mastery_estimate,
-            after_two_half_lives.mastery_estimate,
         )
 
     def test_weak_mastery_does_not_improve_during_inactivity(
@@ -2542,7 +3671,7 @@ class MasteryCalculationTests(TestCase):
             at_last_evidence.mastery_estimate,
         )
 
-    def test_inactivity_decay_is_anchored_to_newest_evidence(
+    def test_last_evidence_timestamp_does_not_decay_mastery(
             self,
     ):
         evidence = [
@@ -2563,48 +3692,40 @@ class MasteryCalculationTests(TestCase):
                 - timedelta(days=21)
         )
 
-        at_anchor = calculate_mastery(
+        at_evidence_time = calculate_mastery(
             evidence,
             as_of=newest_evidence_at,
         )
 
-        after_one_half_life = calculate_mastery(
+        much_later = calculate_mastery(
             evidence,
             as_of=self.as_of,
         )
 
+        # last_evidence_at remains useful historical
+        # metadata, but is no longer a mastery-decay
+        # anchor under rule_v3.
         self.assertEqual(
-            at_anchor.last_evidence_at,
+            at_evidence_time.last_evidence_at,
             newest_evidence_at,
         )
 
         self.assertEqual(
-            after_one_half_life.last_evidence_at,
+            much_later.last_evidence_at,
             newest_evidence_at,
         )
 
-        # Exactly one inactivity half-life passed
-        # after the newest evidence.
-        #
-        # Therefore only the distance above the
-        # prior is halved.
-        expected = (
-                Decimal("0.50")
-                +
-                (
-                        at_anchor.mastery_estimate
-                        - Decimal("0.50")
-                )
-                / Decimal("2")
+        self.assertEqual(
+            much_later.mastery_estimate,
+            at_evidence_time.mastery_estimate,
         )
 
-        self.assertAlmostEqual(
-            after_one_half_life.mastery_estimate,
-            expected,
-            places=9,
+        self.assertEqual(
+            much_later.mastery_score,
+            at_evidence_time.mastery_score,
         )
 
-    def test_new_evidence_resets_inactivity_anchor(
+    def test_new_evidence_updates_mastery_and_last_evidence_at(
             self,
     ):
         stale_evidence = [
@@ -2625,14 +3746,16 @@ class MasteryCalculationTests(TestCase):
             ),
         ]
 
-        stale_result = calculate_mastery(
+        before_new_evidence = calculate_mastery(
             stale_evidence,
             as_of=self.as_of,
         )
 
+        # Time alone did not weaken the demonstrated
+        # mastery.
         self.assertEqual(
-            stale_result.mastery_score,
-            Decimal("0.57500"),
+            before_new_evidence.mastery_score,
+            Decimal("0.80000"),
         )
 
         refreshed_evidence = [
@@ -2644,26 +3767,31 @@ class MasteryCalculationTests(TestCase):
             ),
         ]
 
-        refreshed_result = calculate_mastery(
+        after_new_evidence = calculate_mastery(
             refreshed_evidence,
             as_of=self.as_of,
         )
 
-        # The fresh observation becomes the new
-        # inactivity anchor.
+        # New assessment evidence, rather than elapsed
+        # time, changes mastery.
         self.assertEqual(
-            refreshed_result.last_evidence_at,
+            after_new_evidence.last_evidence_at,
             self.as_of,
         )
 
         self.assertGreater(
-            refreshed_result.mastery_estimate,
-            stale_result.mastery_estimate,
+            after_new_evidence.mastery_estimate,
+            before_new_evidence.mastery_estimate,
         )
 
         self.assertEqual(
-            refreshed_result.algorithm_version,
-            "rule_v2",
+            after_new_evidence.mastery_score,
+            Decimal("0.83333"),
+        )
+
+        self.assertEqual(
+            after_new_evidence.algorithm_version,
+            "rule_v3",
         )
 
     def test_difficulty_adjustment_has_correct_direction(self):
@@ -2721,7 +3849,74 @@ class MasteryCalculationTests(TestCase):
             hard_wrong.mastery_estimate,
         )
 
-    def test_documented_mastery_example_is_about_057(self):
+    def test_strong_mastery_does_not_decay_with_time(
+            self,
+    ):
+        evidence = [
+            self.make_evidence(
+                index=1,
+                is_correct=True,
+            ),
+            self.make_evidence(
+                index=2,
+                is_correct=True,
+            ),
+            self.make_evidence(
+                index=3,
+                is_correct=True,
+            ),
+        ]
+
+        at_last_evidence = calculate_mastery(
+            evidence,
+            as_of=self.as_of,
+        )
+
+        after_21_days = calculate_mastery(
+            evidence,
+            as_of=(
+                    self.as_of
+                    + timedelta(days=21)
+            ),
+        )
+
+        after_42_days = calculate_mastery(
+            evidence,
+            as_of=(
+                    self.as_of
+                    + timedelta(days=42)
+            ),
+        )
+
+        # rule_v3:
+        #
+        # Demonstrated mastery does not decay merely
+        # because wall-clock time passes.
+        #
+        # Time is handled by review scheduling instead.
+        self.assertEqual(
+            at_last_evidence.mastery_score,
+            Decimal("0.80000"),
+        )
+
+        self.assertEqual(
+            after_21_days.mastery_score,
+            at_last_evidence.mastery_score,
+        )
+
+        self.assertEqual(
+            after_42_days.mastery_score,
+            at_last_evidence.mastery_score,
+        )
+
+        self.assertEqual(
+            after_42_days.mastery_estimate,
+            at_last_evidence.mastery_estimate,
+        )
+
+    def test_documented_rule_v3_mastery_example_is_about_053(
+            self,
+    ):
         evidence = [
             self.make_evidence(
                 index=1,
@@ -2758,9 +3953,14 @@ class MasteryCalculationTests(TestCase):
             as_of=self.as_of,
         )
 
+        # rule_v3:
+        #
+        # No historical wall-clock decay is applied.
+        # Evidence is replayed by deterministic
+        # assessment blocks with recency_k_min=.12.
         self.assertEqual(
             result.mastery_score,
-            Decimal("0.56898"),
+            Decimal("0.53356"),
         )
 
     def test_weighted_accuracy_uses_skill_weights(self):
@@ -2894,6 +4094,847 @@ class MasteryCalculationTests(TestCase):
             Decimal("2000.00"),
         )
 
+    def test_primary_evidence_resets_review_clock_even_below_unit_weight(
+            self,
+    ):
+        evidence_at = (
+                self.as_of
+                - timedelta(days=10)
+        )
+
+        evidence = [
+            self.make_evidence(
+                index=1,
+                is_correct=True,
+                weight="0.30",
+                is_primary=True,
+                days_ago=10,
+                session_id=100,
+                sequence_number=1,
+            ),
+        ]
+
+        result = calculate_mastery(
+            evidence,
+            as_of=self.as_of,
+        )
+
+        self.assertEqual(
+            result.last_review_evidence_at,
+            evidence_at,
+        )
+
+    def test_low_weight_secondary_session_does_not_reset_review_clock(
+            self,
+    ):
+        evidence = [
+            self.make_evidence(
+                index=1,
+                is_correct=True,
+                weight="0.30",
+                is_primary=False,
+                days_ago=10,
+                session_id=100,
+                sequence_number=1,
+            ),
+            self.make_evidence(
+                index=2,
+                is_correct=False,
+                weight="0.30",
+                is_primary=False,
+                days_ago=10,
+                session_id=100,
+                sequence_number=2,
+            ),
+        ]
+
+        result = calculate_mastery(
+            evidence,
+            as_of=self.as_of,
+        )
+
+        self.assertIsNone(
+            result.last_review_evidence_at
+        )
+
+    def test_secondary_session_resets_review_clock_at_unit_total_weight(
+            self,
+    ):
+        evidence_at = (
+                self.as_of
+                - timedelta(days=7)
+        )
+
+        evidence = [
+            self.make_evidence(
+                index=1,
+                is_correct=True,
+                weight="0.50",
+                is_primary=False,
+                days_ago=7,
+                session_id=200,
+                sequence_number=1,
+            ),
+            self.make_evidence(
+                index=2,
+                is_correct=False,
+                weight="0.50",
+                is_primary=False,
+                days_ago=7,
+                session_id=200,
+                sequence_number=2,
+            ),
+        ]
+
+        result = calculate_mastery(
+            evidence,
+            as_of=self.as_of,
+        )
+
+        self.assertEqual(
+            result.last_review_evidence_at,
+            evidence_at,
+        )
+
+    def test_review_clock_uses_newest_qualifying_session(
+            self,
+    ):
+        expected = (
+                self.as_of
+                - timedelta(days=5)
+        )
+
+        evidence = [
+            # Old qualifying session.
+            self.make_evidence(
+                index=1,
+                is_correct=True,
+                weight="0.30",
+                is_primary=True,
+                days_ago=12,
+                session_id=100,
+                sequence_number=1,
+            ),
+
+            # Newer qualifying session:
+            # secondary .5 + .5 = 1.0.
+            self.make_evidence(
+                index=2,
+                is_correct=True,
+                weight="0.50",
+                is_primary=False,
+                days_ago=5,
+                session_id=200,
+                sequence_number=1,
+            ),
+            self.make_evidence(
+                index=3,
+                is_correct=True,
+                weight="0.50",
+                is_primary=False,
+                days_ago=5,
+                session_id=200,
+                sequence_number=2,
+            ),
+
+            # Newest evidence overall, but it is too weak
+            # to reset the review clock.
+            self.make_evidence(
+                index=4,
+                is_correct=True,
+                weight="0.30",
+                is_primary=False,
+                days_ago=1,
+                session_id=300,
+                sequence_number=1,
+            ),
+        ]
+
+        result = calculate_mastery(
+            evidence,
+            as_of=self.as_of,
+        )
+
+        self.assertEqual(
+            result.last_review_evidence_at,
+            expected,
+        )
+
+        # Generic evidence recency and review recency are
+        # intentionally different concepts.
+        self.assertEqual(
+            result.last_evidence_at,
+            self.as_of - timedelta(days=1),
+        )
+
+class ReviewPolicyTests(TestCase):
+    def setUp(self):
+        self.as_of = timezone.now()
+
+    def make_candidate(
+        self,
+        *,
+        skill_id,
+        mastery="0.80",
+        observations=3,
+        days_ago=14,
+        skill_code=None,
+    ):
+        if skill_code is None:
+            skill_code = f"REVIEW-{skill_id:02d}"
+
+        last_review_evidence_at = None
+
+        if days_ago is not None:
+            last_review_evidence_at = (
+                self.as_of
+                - timedelta(days=days_ago)
+            )
+
+        return ReviewSkillCandidate(
+            skill_id=skill_id,
+            skill_code=skill_code,
+            mastery_estimate=Decimal(
+                mastery
+            ),
+            observation_count=observations,
+            last_review_evidence_at=(
+                last_review_evidence_at
+            ),
+        )
+
+    def test_two_observations_are_not_review_eligible(
+            self,
+    ):
+        candidate = self.make_candidate(
+            skill_id=1,
+            mastery="0.95",
+            observations=2,
+            days_ago=30,
+        )
+
+        result = build_review_due_pool(
+            candidates=[candidate],
+            as_of=self.as_of,
+        )
+
+        self.assertEqual(
+            result,
+            [],
+        )
+
+    def test_three_observations_can_be_review_due(
+            self,
+    ):
+        candidate = self.make_candidate(
+            skill_id=1,
+            mastery="0.70",
+            observations=3,
+            days_ago=14,
+        )
+
+        result = build_review_due_pool(
+            candidates=[candidate],
+            as_of=self.as_of,
+        )
+
+        self.assertEqual(
+            result,
+            [candidate],
+        )
+
+    def test_recent_mastered_skill_is_not_due(
+            self,
+    ):
+        candidate = self.make_candidate(
+            skill_id=1,
+            mastery="0.90",
+            observations=5,
+            days_ago=13,
+        )
+
+        result = build_review_due_pool(
+            candidates=[candidate],
+            as_of=self.as_of,
+        )
+
+        self.assertEqual(
+            result,
+            [],
+        )
+
+    def test_skill_below_mastery_threshold_is_not_due(
+            self,
+    ):
+        candidate = self.make_candidate(
+            skill_id=1,
+            mastery="0.69999",
+            observations=10,
+            days_ago=30,
+        )
+
+        result = build_review_due_pool(
+            candidates=[candidate],
+            as_of=self.as_of,
+        )
+
+        self.assertEqual(
+            result,
+            [],
+        )
+
+    def test_review_pool_order_is_deterministic(
+            self,
+    ):
+        candidates = [
+            # Newer evidence: must come after every
+            # older-due candidate regardless of mastery.
+            self.make_candidate(
+                skill_id=1,
+                skill_code="AAA",
+                mastery="0.70",
+                observations=5,
+                days_ago=20,
+            ),
+
+            # Same oldest timestamp.
+            # Lower mastery comes first.
+            self.make_candidate(
+                skill_id=2,
+                skill_code="ZZZ",
+                mastery="0.75",
+                observations=5,
+                days_ago=30,
+            ),
+
+            # Same timestamp + same mastery.
+            # skill_code breaks the tie.
+            self.make_candidate(
+                skill_id=3,
+                skill_code="BBB",
+                mastery="0.80",
+                observations=5,
+                days_ago=30,
+            ),
+
+            self.make_candidate(
+                skill_id=4,
+                skill_code="AAA",
+                mastery="0.80",
+                observations=5,
+                days_ago=30,
+            ),
+
+            # Same timestamp + mastery + code.
+            # skill_id is final tie-break.
+            self.make_candidate(
+                skill_id=6,
+                skill_code="CCC",
+                mastery="0.85",
+                observations=5,
+                days_ago=30,
+            ),
+
+            self.make_candidate(
+                skill_id=5,
+                skill_code="CCC",
+                mastery="0.85",
+                observations=5,
+                days_ago=30,
+            ),
+        ]
+
+        result = build_review_due_pool(
+            candidates=candidates,
+            as_of=self.as_of,
+        )
+
+        self.assertEqual(
+            [
+                candidate.skill_id
+                for candidate in result
+            ],
+            [
+                2,  # oldest + lowest mastery
+                4,  # then code AAA
+                3,  # then code BBB
+                5,  # same everything -> lower id
+                6,
+                1,  # newer review evidence last
+            ],
+        )
+
+    def test_zero_review_pool_uses_zero_slots(
+            self,
+    ):
+        self.assertEqual(
+            determine_review_slot_count(
+                pool_size=0,
+            ),
+            0,
+        )
+
+    def test_one_review_candidate_uses_one_slot(
+            self,
+    ):
+        self.assertEqual(
+            determine_review_slot_count(
+                pool_size=1,
+            ),
+            1,
+        )
+
+    def test_seven_review_candidates_still_use_one_slot(
+            self,
+    ):
+        self.assertEqual(
+            determine_review_slot_count(
+                pool_size=7,
+            ),
+            1,
+        )
+
+    def test_eight_review_candidates_use_two_slots(
+            self,
+    ):
+        self.assertEqual(
+            determine_review_slot_count(
+                pool_size=8,
+            ),
+            2,
+        )
+
+    def test_large_review_backlog_still_uses_two_slots(
+            self,
+    ):
+        self.assertEqual(
+            determine_review_slot_count(
+                pool_size=20,
+            ),
+            2,
+        )
+
+    def test_empty_review_backlog_metrics(
+            self,
+    ):
+        metrics = build_review_backlog_metrics(
+            due_pool=[],
+            as_of=self.as_of,
+        )
+
+        self.assertEqual(
+            metrics.backlog_size,
+            0,
+        )
+
+        self.assertIsNone(
+            metrics.oldest_review_age
+        )
+
+    def test_review_backlog_metrics_for_one_due_skill(
+            self,
+    ):
+        candidate = self.make_candidate(
+            skill_id=1,
+            mastery="0.80",
+            observations=3,
+            days_ago=14,
+        )
+
+        metrics = build_review_backlog_metrics(
+            due_pool=[candidate],
+            as_of=self.as_of,
+        )
+
+        self.assertEqual(
+            metrics.backlog_size,
+            1,
+        )
+
+        self.assertEqual(
+            metrics.oldest_review_age,
+            timedelta(days=14),
+        )
+
+    def test_review_backlog_metrics_use_oldest_timestamp(
+            self,
+    ):
+        due_pool = [
+            self.make_candidate(
+                skill_id=1,
+                days_ago=20,
+            ),
+            self.make_candidate(
+                skill_id=2,
+                days_ago=45,
+            ),
+            self.make_candidate(
+                skill_id=3,
+                days_ago=16,
+            ),
+        ]
+
+        metrics = build_review_backlog_metrics(
+            due_pool=due_pool,
+            as_of=self.as_of,
+        )
+
+        self.assertEqual(
+            metrics.backlog_size,
+            3,
+        )
+
+        self.assertEqual(
+            metrics.oldest_review_age,
+            timedelta(days=45),
+        )
+
+    def test_review_backlog_metrics_reject_future_timestamp(
+            self,
+    ):
+        candidate = ReviewSkillCandidate(
+            skill_id=1,
+            skill_code="REVIEW-FUTURE",
+            mastery_estimate=Decimal("0.80"),
+            observation_count=3,
+            last_review_evidence_at=(
+                    self.as_of
+                    + timedelta(seconds=1)
+            ),
+        )
+
+        with self.assertRaises(ValueError):
+            build_review_backlog_metrics(
+                due_pool=[candidate],
+                as_of=self.as_of,
+            )
+
+class UserReviewPolicyIntegrationTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            email="review-policy@example.com",
+            password="test-password-123",
+        )
+
+        cls.topic = Topic.objects.create(
+            topic_name="Review Policy Topic",
+            category="grammar",
+            display_order=12000,
+            is_active=True,
+        )
+
+        cls.skill = Skill.objects.create(
+            topic=cls.topic,
+            skill_code="REVIEW-DB-01",
+            skill_name="Review DB Skill",
+            cefr_level="A1",
+            is_extension=False,
+            display_order=1,
+            is_active=True,
+        )
+
+        cls.question = Question.objects.create(
+            source_id="REVIEW-DB-Q-01",
+            question_type="multiple_choice",
+            item_format="single_choice",
+            question_text="Review policy integration question.",
+            cefr_level="A1",
+            is_extension=False,
+            difficulty_score=Decimal("0.5000"),
+            correct_answer=None,
+            accepted_answers=None,
+            explanation=None,
+            audio_url=None,
+            is_active=True,
+        )
+
+        QuestionSkill.objects.create(
+            question=cls.question,
+            skill=cls.skill,
+            is_primary=True,
+            weight=Decimal("1.00000"),
+        )
+
+        QuestionOption.objects.create(
+            question=cls.question,
+            option_key="A",
+            option_text="Wrong",
+            misconception_code="review_wrong",
+            is_correct=False,
+            display_order=1,
+        )
+
+        QuestionOption.objects.create(
+            question=cls.question,
+            option_key="B",
+            option_text="Correct",
+            misconception_code=None,
+            is_correct=True,
+            display_order=2,
+        )
+
+    def test_due_mastered_skill_appears_in_user_review_pool(
+            self,
+    ):
+        as_of = timezone.now()
+
+        review_evidence_at = (
+                as_of
+                - timedelta(days=14)
+        )
+
+        sessions = []
+
+        # Three valid primary assessment observations.
+        # n = 3 is sufficient for review eligibility.
+        for _ in range(3):
+            session = AssessmentSession.objects.create(
+                user=self.user,
+                mode=AssessmentSession.Mode.ADAPTIVE,
+                status=AssessmentSession.Status.ACTIVE,
+            )
+
+            added = add_question_to_session(
+                user=self.user,
+                session_id=session.pk,
+                question_id=self.question.pk,
+            )
+
+            session_question = (
+                SessionQuestion.objects.get(
+                    pk=added.session_question_id
+                )
+            )
+
+            save_option_answer(
+                user=self.user,
+                session_question_id=(
+                    session_question.pk
+                ),
+                selected_option_key="B",
+            )
+
+            complete_session(
+                user=self.user,
+                session_id=session.pk,
+            )
+
+            sessions.append(
+                session
+            )
+
+        # Freeze all historical assessment evidence
+        # exactly at the review boundary.
+        AssessmentSession.objects.filter(
+            pk__in=[
+                session.pk
+                for session in sessions
+            ]
+        ).update(
+            ended_at=review_evidence_at
+        )
+
+        # Rebuild canonical mastery because the test
+        # deliberately moved historical completion times.
+        recalculate_skill_mastery(
+            user=self.user,
+            skill_id=self.skill.pk,
+            as_of=as_of,
+        )
+
+        result = build_user_review_due_pool(
+            user=self.user,
+            eligible_skill_ids=[
+                self.skill.pk
+            ],
+            as_of=as_of,
+        )
+
+        self.assertEqual(
+            len(result),
+            1,
+        )
+
+        self.assertEqual(
+            result[0].skill_id,
+            self.skill.pk,
+        )
+
+        self.assertEqual(
+            result[0].observation_count,
+            3,
+        )
+
+        self.assertGreaterEqual(
+            result[0].mastery_estimate,
+            Decimal("0.70"),
+        )
+
+        self.assertEqual(
+            result[0].last_review_evidence_at,
+            review_evidence_at,
+        )
+        metrics = build_user_review_backlog_metrics(
+            user=self.user,
+            eligible_skill_ids=[
+                self.skill.pk
+            ],
+            as_of=as_of,
+        )
+
+        self.assertEqual(
+            metrics.backlog_size,
+            1,
+        )
+
+        self.assertEqual(
+            metrics.oldest_review_age,
+            timedelta(days=14),
+        )
+
+    def test_empty_eligible_skill_scope_returns_empty_pool(
+            self,
+    ):
+        result = build_user_review_due_pool(
+            user=self.user,
+            eligible_skill_ids=[],
+            as_of=timezone.now(),
+        )
+
+        self.assertEqual(
+            result,
+            [],
+        )
+        metrics = build_user_review_backlog_metrics(
+            user=self.user,
+            eligible_skill_ids=[],
+            as_of=timezone.now(),
+        )
+
+        self.assertEqual(
+            metrics.backlog_size,
+            0,
+        )
+
+        self.assertIsNone(
+            metrics.oldest_review_age
+        )
+
+    def test_high_mastery_with_two_observations_is_not_review_eligible(
+            self,
+    ):
+        as_of = timezone.now()
+
+        review_evidence_at = (
+                as_of
+                - timedelta(days=30)
+        )
+
+        sessions = []
+
+        # Two correct primary observations produce a
+        # strong mastery estimate, but n=2 is still
+        # insufficient for review eligibility.
+        for _ in range(2):
+            session = AssessmentSession.objects.create(
+                user=self.user,
+                mode=AssessmentSession.Mode.ADAPTIVE,
+                status=AssessmentSession.Status.ACTIVE,
+            )
+
+            added = add_question_to_session(
+                user=self.user,
+                session_id=session.pk,
+                question_id=self.question.pk,
+            )
+
+            session_question = (
+                SessionQuestion.objects.get(
+                    pk=added.session_question_id
+                )
+            )
+
+            save_option_answer(
+                user=self.user,
+                session_question_id=(
+                    session_question.pk
+                ),
+                selected_option_key="B",
+            )
+
+            complete_session(
+                user=self.user,
+                session_id=session.pk,
+            )
+
+            sessions.append(
+                session
+            )
+
+        AssessmentSession.objects.filter(
+            pk__in=[
+                session.pk
+                for session in sessions
+            ]
+        ).update(
+            ended_at=review_evidence_at
+        )
+
+        recalculate_skill_mastery(
+            user=self.user,
+            skill_id=self.skill.pk,
+            as_of=as_of,
+        )
+
+        priority = build_user_skill_priority(
+            user=self.user,
+            skill_id=self.skill.pk,
+            as_of=as_of,
+        )
+
+        # Sanity check:
+        # mastery estimate is already above .70.
+        self.assertGreaterEqual(
+            priority.mastery_estimate,
+            Decimal("0.70"),
+        )
+
+        self.assertEqual(
+            priority.observation_count,
+            2,
+        )
+
+        result = build_user_review_due_pool(
+            user=self.user,
+            eligible_skill_ids=[
+                self.skill.pk
+            ],
+            as_of=as_of,
+        )
+
+        # But n=2 must still exclude the Skill.
+        self.assertEqual(
+            result,
+            [],
+        )
+        metrics = build_user_review_backlog_metrics(
+            user=self.user,
+            eligible_skill_ids=[
+                self.skill.pk
+            ],
+            as_of=as_of,
+        )
+
+        self.assertEqual(
+            metrics.backlog_size,
+            0,
+        )
+
+        self.assertIsNone(
+            metrics.oldest_review_age
+        )
+
 class SkillMasteryLazyRefreshTests(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -3006,12 +5047,12 @@ class SkillMasteryLazyRefreshTests(TestCase):
             self.current_version,
         )
 
-    def test_fresh_mastery_is_not_recalculated(
-        self,
+    def test_current_version_mastery_is_not_recalculated(
+            self,
     ):
         original_calculated_at = (
-            self.as_of
-            - timedelta(hours=23)
+                self.as_of
+                - timedelta(hours=23)
         )
 
         original = self.create_existing_state(
@@ -3031,7 +5072,8 @@ class SkillMasteryLazyRefreshTests(TestCase):
             original.pk,
         )
 
-        # Fresh snapshot is returned unchanged.
+        # A calculated snapshot using the current
+        # algorithm version is returned unchanged.
         self.assertEqual(
             state.calculated_at,
             original_calculated_at,
@@ -3047,13 +5089,17 @@ class SkillMasteryLazyRefreshTests(TestCase):
             3,
         )
 
-    def test_mastery_refreshes_at_24_hour_boundary(
-        self,
+    def test_old_mastery_is_not_recalculated_by_time_alone(
+            self,
     ):
+        original_calculated_at = (
+                self.as_of
+                - timedelta(days=60)
+        )
+
         original = self.create_existing_state(
             calculated_at=(
-                self.as_of
-                - timedelta(hours=24)
+                original_calculated_at
             ),
         )
 
@@ -3068,20 +5114,28 @@ class SkillMasteryLazyRefreshTests(TestCase):
             original.pk,
         )
 
-        # No real assessment evidence exists, so
-        # successful recalculation returns cold start.
-        self.assertEqual(
-            state.observation_count,
-            0,
-        )
-
-        self.assertIsNone(
-            state.mastery_score
-        )
-
+        # rule_v3:
+        #
+        # Wall-clock age alone does not make a
+        # mastery snapshot stale.
         self.assertEqual(
             state.calculated_at,
-            self.as_of,
+            original_calculated_at,
+        )
+
+        self.assertEqual(
+            state.mastery_score,
+            Decimal("0.80000"),
+        )
+
+        self.assertEqual(
+            state.observation_count,
+            3,
+        )
+
+        self.assertEqual(
+            state.algorithm_version,
+            self.current_version,
         )
 
     def test_old_algorithm_version_forces_refresh(
@@ -3103,8 +5157,9 @@ class SkillMasteryLazyRefreshTests(TestCase):
             original.pk,
         )
 
-        # Fresh by time, but obsolete by algorithm.
-        # Therefore it must still be rebuilt.
+        # Snapshot age is irrelevant under rule_v3,
+        # but an obsolete algorithm version must
+        # still force a rebuild.
         self.assertEqual(
             state.algorithm_version,
             self.current_version,
@@ -3918,14 +5973,39 @@ class UserSkillPriorityRankingTests(TestCase):
     def setUp(self):
         self.as_of = timezone.now()
 
-    def test_equal_priorities_use_deterministic_skill_code_tiebreak(
-        self,
+    def test_equal_priorities_use_curriculum_order_not_skill_code(
+            self,
     ):
+        """
+        Equal learner priorities must follow curriculum
+        order, not alphabetical skill_code order.
+        """
+
+        curriculum_early = Skill.objects.create(
+            topic=self.topic,
+            skill_code="ZZ-RANK-EARLY",
+            skill_name="Curriculum Earlier Skill",
+            cefr_level="A1",
+            is_extension=False,
+            display_order=10,
+            is_active=True,
+        )
+
+        curriculum_late = Skill.objects.create(
+            topic=self.topic,
+            skill_code="AA-RANK-LATE",
+            skill_name="Curriculum Later Skill",
+            cefr_level="A1",
+            is_extension=False,
+            display_order=20,
+            is_active=True,
+        )
+
         ranked = rank_user_skill_priorities(
             user=self.user,
             skill_ids=[
-                self.skill_b.pk,
-                self.skill_a.pk,
+                curriculum_late.pk,
+                curriculum_early.pk,
             ],
             as_of=self.as_of,
         )
@@ -3935,14 +6015,8 @@ class UserSkillPriorityRankingTests(TestCase):
             2,
         )
 
-        # Both skills are unseen.
-        #
-        # M-hat = .5
-        # W = .5
-        # U = 1
-        #
-        # P = .40*.5 + .10*1
-        #   = .30
+        # Both are cold start:
+        # priority = .30000.
         self.assertEqual(
             ranked[0].priority_score,
             Decimal("0.30000"),
@@ -3953,18 +6027,18 @@ class UserSkillPriorityRankingTests(TestCase):
             Decimal("0.30000"),
         )
 
-        # Input order was B, A.
+        # Alphabetically AA would come before ZZ.
         #
-        # Equal scores must therefore be resolved
-        # by canonical skill_code ordering.
+        # Curriculum order deliberately requires
+        # ZZ-RANK-EARLY first.
         self.assertEqual(
             [
                 row.skill_code
                 for row in ranked
             ],
             [
-                "RANK-A",
-                "RANK-B",
+                "ZZ-RANK-EARLY",
+                "AA-RANK-LATE",
             ],
         )
 
@@ -4179,13 +6253,15 @@ class UserSkillPriorityRankingTests(TestCase):
 
 class QuestionSelectionCalculationTests(TestCase):
     def make_candidate(
-        self,
-        *,
-        question_id,
-        source_id,
-        difficulty,
-        is_primary=True,
-        was_seen_before=False,
+            self,
+            *,
+            question_id,
+            source_id,
+            difficulty,
+            is_primary=True,
+            was_seen_before=False,
+            last_seen_at=None,
+            seen_in_previous_assessment=False,
     ):
         return QuestionCandidate(
             question_id=question_id,
@@ -4195,6 +6271,122 @@ class QuestionSelectionCalculationTests(TestCase):
             ),
             is_primary=is_primary,
             was_seen_before=was_seen_before,
+            last_seen_at=last_seen_at,
+            seen_in_previous_assessment=(
+                seen_in_previous_assessment
+            ),
+        )
+
+    def test_review_ranking_prefers_unseen_question(
+            self,
+    ):
+        as_of = timezone.now()
+
+        candidates = [
+            self.make_candidate(
+                question_id=1,
+                source_id="REVIEW-SEEN",
+                difficulty="0.50",
+                was_seen_before=True,
+                last_seen_at=(
+                        as_of
+                        - timedelta(days=60)
+                ),
+            ),
+            self.make_candidate(
+                question_id=2,
+                source_id="REVIEW-UNSEEN",
+                difficulty="0.80",
+                was_seen_before=False,
+            ),
+        ]
+
+        ranked = rank_review_question_candidates(
+            candidates=candidates,
+            target_difficulty=Decimal("0.50"),
+        )
+
+        self.assertEqual(
+            ranked[0].question_id,
+            2,
+        )
+
+    def test_review_ranking_prefers_least_recently_seen(
+            self,
+    ):
+        as_of = timezone.now()
+
+        candidates = [
+            self.make_candidate(
+                question_id=1,
+                source_id="REVIEW-RECENT",
+                difficulty="0.50",
+                was_seen_before=True,
+                last_seen_at=(
+                        as_of
+                        - timedelta(days=10)
+                ),
+            ),
+            self.make_candidate(
+                question_id=2,
+                source_id="REVIEW-OLD",
+                difficulty="0.70",
+                was_seen_before=True,
+                last_seen_at=(
+                        as_of
+                        - timedelta(days=80)
+                ),
+            ),
+        ]
+
+        ranked = rank_review_question_candidates(
+            candidates=candidates,
+            target_difficulty=Decimal("0.50"),
+        )
+
+        self.assertEqual(
+            ranked[0].question_id,
+            2,
+        )
+
+    def test_review_ranking_avoids_previous_assessment(
+            self,
+    ):
+        as_of = timezone.now()
+
+        candidates = [
+            self.make_candidate(
+                question_id=1,
+                source_id="REVIEW-PREVIOUS",
+                difficulty="0.50",
+                was_seen_before=True,
+                last_seen_at=(
+                        as_of
+                        - timedelta(days=30)
+                ),
+                seen_in_previous_assessment=True,
+            ),
+            self.make_candidate(
+                question_id=2,
+                source_id="REVIEW-OLDER",
+                difficulty="0.70",
+                was_seen_before=True,
+                last_seen_at=(
+                        as_of
+                        - timedelta(days=20)
+                ),
+                seen_in_previous_assessment=False,
+            ),
+        ]
+
+        ranked = rank_review_question_candidates(
+            candidates=candidates,
+            target_difficulty=Decimal("0.50"),
+        )
+
+        self.assertEqual(
+            ranked[0].question_id,
+            2,
         )
 
     def test_nearest_difficulty_wins_when_other_factors_equal(
@@ -4404,6 +6596,442 @@ class QuestionSelectionCalculationTests(TestCase):
         )
 
 class QuestionCandidateDBIntegrationTests(TestCase):
+    def test_previously_viewed_question_has_review_history_metadata(
+            self,
+    ):
+        self._replace_current_session_after_history(
+            viewed=True,
+        )
+
+        candidate = self.get_candidate(
+            question_id=self.question_mid.pk,
+        )
+
+        self.assertIsNotNone(
+            candidate
+        )
+
+        self.assertTrue(
+            candidate.was_seen_before
+        )
+
+        self.assertIsNotNone(
+            candidate.last_seen_at
+        )
+
+        self.assertTrue(
+            candidate.seen_in_previous_assessment
+        )
+
+    def test_review_history_identifies_previous_assessment_and_last_seen(
+            self,
+    ):
+        as_of = timezone.now()
+
+        older_seen_at = (
+                as_of
+                - timedelta(days=40)
+        )
+
+        newer_seen_at = (
+                as_of
+                - timedelta(days=20)
+        )
+
+        # setUp() created one ACTIVE session.
+        abandon_session(
+            user=self.user,
+            session_id=self.session.pk,
+        )
+
+        # =========================================
+        # Older assessment:
+        # question_easy
+        # =========================================
+
+        older_started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        older_session = (
+            AssessmentSession.objects.get(
+                pk=older_started.session_id
+            )
+        )
+
+        older_added = add_question_to_session(
+            user=self.user,
+            session_id=older_session.pk,
+            question_id=self.question_easy.pk,
+        )
+
+        mark_session_question_viewed(
+            user=self.user,
+            session_question_id=(
+                older_added.session_question_id
+            ),
+        )
+
+        complete_session(
+            user=self.user,
+            session_id=older_session.pk,
+        )
+
+        SessionQuestion.objects.filter(
+            pk=older_added.session_question_id,
+        ).update(
+            first_viewed_at=older_seen_at,
+        )
+
+        AssessmentSession.objects.filter(
+            pk=older_session.pk,
+        ).update(
+            ended_at=older_seen_at,
+        )
+
+        # =========================================
+        # Newer / immediately previous assessment:
+        # question_mid
+        # =========================================
+
+        newer_started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        newer_session = (
+            AssessmentSession.objects.get(
+                pk=newer_started.session_id
+            )
+        )
+
+        newer_added = add_question_to_session(
+            user=self.user,
+            session_id=newer_session.pk,
+            question_id=self.question_mid.pk,
+        )
+
+        mark_session_question_viewed(
+            user=self.user,
+            session_question_id=(
+                newer_added.session_question_id
+            ),
+        )
+
+        complete_session(
+            user=self.user,
+            session_id=newer_session.pk,
+        )
+
+        SessionQuestion.objects.filter(
+            pk=newer_added.session_question_id,
+        ).update(
+            first_viewed_at=newer_seen_at,
+        )
+
+        AssessmentSession.objects.filter(
+            pk=newer_session.pk,
+        ).update(
+            ended_at=newer_seen_at,
+        )
+
+        # =========================================
+        # Fresh current assessment
+        # =========================================
+
+        current_started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        self.session = (
+            AssessmentSession.objects.get(
+                pk=current_started.session_id
+            )
+        )
+
+        candidates = build_question_candidates(
+            user=self.user,
+            session_id=self.session.pk,
+            skill_id=self.skill.pk,
+        )
+
+        by_question_id = {
+            candidate.question_id: candidate
+            for candidate in candidates
+        }
+
+        older = by_question_id[
+            self.question_easy.pk
+        ]
+
+        newer = by_question_id[
+            self.question_mid.pk
+        ]
+
+        # Both were genuinely seen.
+        self.assertTrue(
+            older.was_seen_before
+        )
+
+        self.assertTrue(
+            newer.was_seen_before
+        )
+
+        # Historical timestamps must be reconstructed
+        # exactly from first_viewed_at.
+        self.assertEqual(
+            older.last_seen_at,
+            older_seen_at,
+        )
+
+        self.assertEqual(
+            newer.last_seen_at,
+            newer_seen_at,
+        )
+
+        # Only the newest prior assessment receives the
+        # previous-assessment penalty.
+        self.assertFalse(
+            older.seen_in_previous_assessment
+        )
+
+        self.assertTrue(
+            newer.seen_in_previous_assessment
+        )
+
+    def test_abandoned_viewed_session_does_not_replace_previous_completed_assessment(
+            self,
+    ):
+        as_of = timezone.now()
+
+        completed_seen_at = (
+                as_of
+                - timedelta(days=40)
+        )
+
+        abandoned_seen_at = (
+                as_of
+                - timedelta(days=20)
+        )
+
+        # setUp() already created the current ACTIVE
+        # assessment. Close it before building history.
+        abandon_session(
+            user=self.user,
+            session_id=self.session.pk,
+        )
+
+        # =========================================
+        # Previous COMPLETED assessment.
+        # =========================================
+
+        completed_started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        completed_added = add_question_to_session(
+            user=self.user,
+            session_id=completed_started.session_id,
+            question_id=self.question_easy.pk,
+        )
+
+        mark_session_question_viewed(
+            user=self.user,
+            session_question_id=(
+                completed_added.session_question_id
+            ),
+        )
+
+        complete_session(
+            user=self.user,
+            session_id=completed_started.session_id,
+        )
+
+        SessionQuestion.objects.filter(
+            pk=completed_added.session_question_id,
+        ).update(
+            first_viewed_at=completed_seen_at,
+        )
+
+        AssessmentSession.objects.filter(
+            pk=completed_started.session_id,
+        ).update(
+            ended_at=completed_seen_at,
+        )
+
+        # =========================================
+        # Later ABANDONED assessment.
+        #
+        # The learner genuinely viewed question_mid,
+        # so it counts as historical exposure.
+        #
+        # But it must NOT replace the most recent
+        # completed assessment for duplicate avoidance.
+        # =========================================
+
+        abandoned_started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        abandoned_added = add_question_to_session(
+            user=self.user,
+            session_id=abandoned_started.session_id,
+            question_id=self.question_mid.pk,
+        )
+
+        mark_session_question_viewed(
+            user=self.user,
+            session_question_id=(
+                abandoned_added.session_question_id
+            ),
+        )
+
+        abandon_session(
+            user=self.user,
+            session_id=abandoned_started.session_id,
+        )
+
+        SessionQuestion.objects.filter(
+            pk=abandoned_added.session_question_id,
+        ).update(
+            first_viewed_at=abandoned_seen_at,
+        )
+
+        AssessmentSession.objects.filter(
+            pk=abandoned_started.session_id,
+        ).update(
+            ended_at=abandoned_seen_at,
+        )
+
+        # =========================================
+        # Current assessment.
+        # =========================================
+
+        current_started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        self.session = AssessmentSession.objects.get(
+            pk=current_started.session_id
+        )
+
+        candidates = build_question_candidates(
+            user=self.user,
+            session_id=self.session.pk,
+            skill_id=self.skill.pk,
+        )
+
+        by_question_id = {
+            candidate.question_id: candidate
+            for candidate in candidates
+        }
+
+        completed_candidate = by_question_id[
+            self.question_easy.pk
+        ]
+
+        abandoned_candidate = by_question_id[
+            self.question_mid.pk
+        ]
+
+        # Both are genuine historical exposures.
+        self.assertTrue(
+            completed_candidate.was_seen_before
+        )
+
+        self.assertTrue(
+            abandoned_candidate.was_seen_before
+        )
+
+        self.assertEqual(
+            completed_candidate.last_seen_at,
+            completed_seen_at,
+        )
+
+        self.assertEqual(
+            abandoned_candidate.last_seen_at,
+            abandoned_seen_at,
+        )
+
+        # "Previous assessment" for D2 duplicate
+        # avoidance means the immediately previous
+        # COMPLETED assessment.
+        self.assertTrue(
+            completed_candidate.seen_in_previous_assessment
+        )
+
+        self.assertFalse(
+            abandoned_candidate.seen_in_previous_assessment
+        )
+
+    def _replace_current_session_after_history(
+            self,
+            *,
+            viewed,
+    ):
+        """
+        Build one historical completed assessment,
+        then restore a fresh ACTIVE assessment used
+        for candidate selection.
+
+        This respects the one-active-assessment
+        invariant at every moment.
+        """
+
+        # setUp() already created the current ACTIVE
+        # session. It cannot coexist with historical
+        # setup below.
+        abandon_session(
+            user=self.user,
+            session_id=self.session.pk,
+        )
+
+        historical_started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        historical_session = (
+            AssessmentSession.objects.get(
+                pk=historical_started.session_id
+            )
+        )
+
+        added = add_question_to_session(
+            user=self.user,
+            session_id=historical_session.pk,
+            question_id=self.question_mid.pk,
+        )
+
+        if viewed:
+            mark_session_question_viewed(
+                user=self.user,
+                session_question_id=(
+                    added.session_question_id
+                ),
+            )
+
+        complete_session(
+            user=self.user,
+            session_id=historical_session.pk,
+        )
+
+        current_started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        self.session = (
+            AssessmentSession.objects.get(
+                pk=current_started.session_id
+            )
+        )
+
     @classmethod
     def setUpTestData(cls):
         cls.user = User.objects.create_user(
@@ -4674,30 +7302,10 @@ class QuestionCandidateDBIntegrationTests(TestCase):
         )
 
     def test_previously_viewed_question_is_marked_seen(
-        self,
+            self,
     ):
-        old_session = AssessmentSession.objects.create(
-            user=self.user,
-            mode=AssessmentSession.Mode.ADAPTIVE,
-            status=AssessmentSession.Status.ACTIVE,
-        )
-
-        added = add_question_to_session(
-            user=self.user,
-            session_id=old_session.pk,
-            question_id=self.question_mid.pk,
-        )
-
-        mark_session_question_viewed(
-            user=self.user,
-            session_question_id=(
-                added.session_question_id
-            ),
-        )
-
-        complete_session(
-            user=self.user,
-            session_id=old_session.pk,
+        self._replace_current_session_after_history(
+            viewed=True,
         )
 
         candidate = self.get_candidate(
@@ -4713,25 +7321,10 @@ class QuestionCandidateDBIntegrationTests(TestCase):
         )
 
     def test_previously_selected_but_never_viewed_is_not_seen(
-        self,
+            self,
     ):
-        old_session = AssessmentSession.objects.create(
-            user=self.user,
-            mode=AssessmentSession.Mode.ADAPTIVE,
-            status=AssessmentSession.Status.ACTIVE,
-        )
-
-        add_question_to_session(
-            user=self.user,
-            session_id=old_session.pk,
-            question_id=self.question_mid.pk,
-        )
-
-        # Deliberately never call
-        # mark_session_question_viewed().
-        complete_session(
-            user=self.user,
-            session_id=old_session.pk,
+        self._replace_current_session_after_history(
+            viewed=False,
         )
 
         candidate = self.get_candidate(
@@ -4742,8 +7335,6 @@ class QuestionCandidateDBIntegrationTests(TestCase):
             candidate
         )
 
-        # Selection alone does not mean that the
-        # learner actually saw the Question.
         self.assertFalse(
             candidate.was_seen_before
         )
@@ -4926,11 +7517,23 @@ class AdaptiveQuestionSelectionIntegrationTests(TestCase):
             difficulty="0.5000",
         )
 
+        # setUp() already created the current ACTIVE
+        # adaptive session. Close it before constructing
+        # historical evidence so the one-active-session
+        # invariant is respected at every moment.
+        abandon_session(
+            user=self.user,
+            session_id=self.session.pk,
+        )
+
+        historical_started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
         historical_session = (
-            AssessmentSession.objects.create(
-                user=self.user,
-                mode=AssessmentSession.Mode.ADAPTIVE,
-                status=AssessmentSession.Status.ACTIVE,
+            AssessmentSession.objects.get(
+                pk=historical_started.session_id
             )
         )
 
@@ -4961,7 +7564,79 @@ class AdaptiveQuestionSelectionIntegrationTests(TestCase):
 
         historical_session.refresh_from_db()
 
+        # Restore a fresh current ACTIVE session for
+        # the selector exercised by the calling test.
+        current_started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        self.session = (
+            AssessmentSession.objects.get(
+                pk=current_started.session_id
+            )
+        )
+
         return historical_session
+
+    def test_viewing_question_preserves_selection_metadata_in_result(
+            self,
+    ):
+        added = select_and_add_adaptive_question(
+            user=self.user,
+            session_id=self.session.pk,
+            skill_id=self.skill.pk,
+            as_of=self.as_of,
+        )
+
+        self.assertIsNotNone(
+            added
+        )
+
+        self.assertEqual(
+            added.selection_reason,
+            SessionQuestion.SelectionReason.NORMAL,
+        )
+
+        self.assertFalse(
+            added.was_seen_before
+        )
+
+        viewed = mark_session_question_viewed(
+            user=self.user,
+            session_question_id=(
+                added.session_question_id
+            ),
+        )
+
+        self.assertIsNotNone(
+            viewed.first_viewed_at
+        )
+
+        # C3 audit metadata is a frozen assignment-time
+        # snapshot. Viewing the Question now must not
+        # rewrite it.
+        self.assertEqual(
+            viewed.selection_reason,
+            SessionQuestion.SelectionReason.NORMAL,
+        )
+
+        self.assertFalse(
+            viewed.was_seen_before
+        )
+
+        row = SessionQuestion.objects.get(
+            pk=added.session_question_id
+        )
+
+        self.assertEqual(
+            row.selection_reason,
+            SessionQuestion.SelectionReason.NORMAL,
+        )
+
+        self.assertFalse(
+            row.was_seen_before
+        )
 
     def test_cold_start_selects_mid_difficulty_and_adds_question(
         self,
@@ -4995,10 +7670,28 @@ class AdaptiveQuestionSelectionIntegrationTests(TestCase):
             1,
         )
 
+        self.assertEqual(
+            result.selection_reason,
+            SessionQuestion.SelectionReason.NORMAL,
+        )
+
+        self.assertFalse(
+            result.was_seen_before
+        )
+
         session_question = (
             SessionQuestion.objects.get(
                 pk=result.session_question_id
             )
+        )
+
+        self.assertEqual(
+            session_question.selection_reason,
+            SessionQuestion.SelectionReason.NORMAL,
+        )
+
+        self.assertFalse(
+            session_question.was_seen_before
         )
 
         self.assertEqual(
@@ -5147,9 +7840,17 @@ class AdaptiveQuestionSelectionIntegrationTests(TestCase):
     def test_diagnostic_session_is_rejected_by_adaptive_selector(
         self,
     ):
+        wrong_mode_user = User.objects.create_user(
+            email=(
+                "adaptive-selector-"
+                "wrong-mode@example.com"
+            ),
+            password="test-password-123",
+        )
+
         diagnostic_session = (
             AssessmentSession.objects.create(
-                user=self.user,
+                user=wrong_mode_user,
                 mode=AssessmentSession.Mode.DIAGNOSTIC,
                 status=AssessmentSession.Status.ACTIVE,
             )
@@ -5159,7 +7860,7 @@ class AdaptiveQuestionSelectionIntegrationTests(TestCase):
             LearningServiceError
         ):
             select_and_add_adaptive_question(
-                user=self.user,
+                user=wrong_mode_user,
                 session_id=diagnostic_session.pk,
                 skill_id=self.skill.pk,
                 as_of=self.as_of,
@@ -5174,12 +7875,13 @@ class AdaptiveQuestionSelectionIntegrationTests(TestCase):
 
 class AdaptiveAssessmentPlannerTests(TestCase):
     def make_skill(
-        self,
-        *,
-        skill_id,
-        skill_code,
-        priority,
-        question_ids,
+            self,
+            *,
+            skill_id,
+            skill_code,
+            priority,
+            question_ids,
+            selection_rank=None,
     ):
         return AssemblySkillCandidate(
             skill_id=skill_id,
@@ -5190,6 +7892,7 @@ class AdaptiveAssessmentPlannerTests(TestCase):
             ranked_question_ids=tuple(
                 question_ids
             ),
+            selection_rank=selection_rank,
         )
 
     def test_five_skills_are_distributed_two_questions_each(
@@ -5285,19 +7988,19 @@ class AdaptiveAssessmentPlannerTests(TestCase):
             10,
         )
 
-    def test_equal_priorities_use_skill_code_tiebreak(
-        self,
+    def test_equal_priorities_without_selection_rank_use_stable_skill_id_fallback(
+            self,
     ):
         skills = [
             self.make_skill(
                 skill_id=2,
-                skill_code="B",
+                skill_code="AA-BY-CODE",
                 priority="0.50",
                 question_ids=[201, 202],
             ),
             self.make_skill(
                 skill_id=1,
-                skill_code="A",
+                skill_code="ZZ-BY-CODE",
                 priority="0.50",
                 question_ids=[101, 102],
             ),
@@ -5310,16 +8013,105 @@ class AdaptiveAssessmentPlannerTests(TestCase):
             preferred_max_per_skill=2,
         )
 
+        # Alphabet would put AA first.
+        #
+        # Pure planner fallback is now stable skill_id,
+        # therefore skill_id=1 / ZZ comes first.
         self.assertEqual(
             [
                 slot.focus_skill_code
                 for slot in plan
             ],
             [
-                "A",
-                "B",
-                "A",
-                "B",
+                "ZZ-BY-CODE",
+                "AA-BY-CODE",
+                "ZZ-BY-CODE",
+                "AA-BY-CODE",
+            ],
+        )
+
+    def test_selection_rank_overrides_raw_priority_order(
+            self,
+    ):
+        """
+        Production preparation owns portfolio ordering.
+
+        Once selection_rank exists, raw priority must not
+        allow a reserve remediation Skill to displace an
+        intended exploration Skill.
+        """
+
+        skills = [
+            self.make_skill(
+                skill_id=1,
+                skill_code="REMEDIATION-1",
+                priority="0.90",
+                question_ids=[101, 102],
+                selection_rank=1,
+            ),
+            self.make_skill(
+                skill_id=2,
+                skill_code="REMEDIATION-2",
+                priority="0.80",
+                question_ids=[201, 202],
+                selection_rank=2,
+            ),
+            self.make_skill(
+                skill_id=3,
+                skill_code="EXPLORATION-1",
+                priority="0.30",
+                question_ids=[301, 302],
+                selection_rank=3,
+            ),
+            self.make_skill(
+                skill_id=4,
+                skill_code="EXPLORATION-2",
+                priority="0.30",
+                question_ids=[401, 402],
+                selection_rank=4,
+            ),
+            self.make_skill(
+                skill_id=5,
+                skill_code="EXPLORATION-3",
+                priority="0.30",
+                question_ids=[501, 502],
+                selection_rank=5,
+            ),
+
+            # Higher priority than the exploration Skills,
+            # but intentionally a reserve Skill.
+            self.make_skill(
+                skill_id=6,
+                skill_code="REMEDIATION-RESERVE",
+                priority="0.95",
+                question_ids=[601, 602],
+                selection_rank=6,
+            ),
+        ]
+
+        plan = plan_adaptive_assessment(
+            skill_candidates=skills,
+        )
+
+        self.assertEqual(
+            [
+                slot.focus_skill_code
+                for slot in plan[:5]
+            ],
+            [
+                "REMEDIATION-1",
+                "REMEDIATION-2",
+                "EXPLORATION-1",
+                "EXPLORATION-2",
+                "EXPLORATION-3",
+            ],
+        )
+
+        self.assertNotIn(
+            "REMEDIATION-RESERVE",
+            [
+                slot.focus_skill_code
+                for slot in plan[:5]
             ],
         )
 
@@ -5767,11 +8559,22 @@ class AdaptiveAssessmentPreparationIntegrationTests(TestCase):
             question=question,
         )
 
+        # The class setUp() owns one current ACTIVE
+        # assessment. Close it before creating the
+        # historical completed assessment.
+        abandon_session(
+            user=self.user,
+            session_id=self.session.pk,
+        )
+
+        historical_started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
         historical_session = (
-            AssessmentSession.objects.create(
-                user=self.user,
-                mode=AssessmentSession.Mode.ADAPTIVE,
-                status=AssessmentSession.Status.ACTIVE,
+            AssessmentSession.objects.get(
+                pk=historical_started.session_id
             )
         )
 
@@ -5792,6 +8595,19 @@ class AdaptiveAssessmentPreparationIntegrationTests(TestCase):
         complete_session(
             user=self.user,
             session_id=historical_session.pk,
+        )
+
+        # Restore the current ACTIVE assessment used
+        # by prepare_adaptive_assessment_candidates().
+        current_started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        self.session = (
+            AssessmentSession.objects.get(
+                pk=current_started.session_id
+            )
         )
 
         return question
@@ -6180,6 +8996,514 @@ class AdaptiveAssessmentAssemblyIntegrationTests(TestCase):
             for skill in self.skills
         ]
 
+    @patch(
+        "learning_engine.adaptive_preparation."
+        "build_user_review_due_pool"
+    )
+    def test_adaptive_assembly_persists_review_selection_reason(
+            self,
+            mock_review_pool,
+    ):
+        as_of = timezone.now()
+
+        review_skill = self.skills[0]
+
+        mock_review_pool.return_value = (
+            ReviewSkillCandidate(
+                skill_id=review_skill.pk,
+                skill_code=review_skill.skill_code,
+                mastery_estimate=Decimal("0.80"),
+                observation_count=3,
+                last_review_evidence_at=(
+                        as_of
+                        - timedelta(days=14)
+                ),
+            ),
+        )
+
+        result = assemble_adaptive_assessment(
+            user=self.user,
+            session_id=self.session.pk,
+            eligible_skill_ids=(
+                self.eligible_skill_ids
+            ),
+            as_of=as_of,
+        )
+
+        review_slot_numbers = {
+            slot.slot_number
+            for slot in result.slots
+            if (
+                    slot.focus_skill_id
+                    == review_skill.pk
+            )
+        }
+
+        self.assertEqual(
+            len(review_slot_numbers),
+            2,
+        )
+
+        session_questions = list(
+            SessionQuestion.objects
+            .filter(
+                session=self.session,
+            )
+            .order_by(
+                "sequence_number",
+            )
+        )
+
+        review_rows = [
+            row
+            for row in session_questions
+            if (
+                    row.sequence_number
+                    in review_slot_numbers
+            )
+        ]
+
+        normal_rows = [
+            row
+            for row in session_questions
+            if (
+                    row.sequence_number
+                    not in review_slot_numbers
+            )
+        ]
+
+        self.assertEqual(
+            len(review_rows),
+            2,
+        )
+
+        self.assertTrue(
+            all(
+                row.selection_reason
+                == SessionQuestion.SelectionReason.REVIEW
+                for row in review_rows
+            )
+        )
+
+        self.assertEqual(
+            len(normal_rows),
+            8,
+        )
+
+        self.assertTrue(
+            all(
+                row.selection_reason
+                == SessionQuestion.SelectionReason.NORMAL
+                for row in normal_rows
+            )
+        )
+
+    def test_real_due_skill_flows_to_two_review_questions(
+            self,
+    ):
+        as_of = timezone.now()
+
+        review_evidence_at = (
+                as_of
+                - timedelta(days=14)
+        )
+
+        review_skill = self.skills[0]
+
+        review_question = Question.objects.get(
+            source_id="AASM-A-Q1"
+        )
+
+        # Existing assembly Questions do not need options
+        # normally. Add options here because this Question
+        # will also be used as real historical evidence.
+        QuestionOption.objects.create(
+            question=review_question,
+            option_key="A",
+            option_text="Wrong",
+            misconception_code="c5_wrong",
+            is_correct=False,
+            display_order=1,
+        )
+
+        QuestionOption.objects.create(
+            question=review_question,
+            option_key="B",
+            option_text="Correct",
+            misconception_code=None,
+            is_correct=True,
+            display_order=2,
+        )
+
+        # setUp() created an ACTIVE assessment.
+        # Close it before creating historical evidence.
+        abandon_session(
+            user=self.user,
+            session_id=self.session.pk,
+        )
+
+        historical_session_ids = []
+
+        # =========================================
+        # Three real primary correct observations.
+        #
+        # n = 3
+        # mastery >= .70
+        # last_review_evidence_at = exact 14-day boundary
+        # =========================================
+
+        for _ in range(3):
+            started = start_session(
+                user=self.user,
+                mode=AssessmentSession.Mode.ADAPTIVE,
+            )
+
+            added = add_question_to_session(
+                user=self.user,
+                session_id=started.session_id,
+                question_id=review_question.pk,
+            )
+
+            save_option_answer(
+                user=self.user,
+                session_question_id=(
+                    added.session_question_id
+                ),
+                selected_option_key="B",
+            )
+
+            complete_session(
+                user=self.user,
+                session_id=started.session_id,
+            )
+
+            historical_session_ids.append(
+                started.session_id
+            )
+
+        # Freeze all three observations exactly at the
+        # D2 review boundary.
+        AssessmentSession.objects.filter(
+            pk__in=historical_session_ids,
+        ).update(
+            ended_at=review_evidence_at,
+        )
+
+        # Rebuild canonical mastery/review clock after
+        # deliberately moving completion timestamps.
+        recalculate_skill_mastery(
+            user=self.user,
+            skill_id=review_skill.pk,
+            as_of=as_of,
+        )
+
+        # =========================================
+        # Verify the REAL canonical D2 due pool.
+        # No mocks.
+        # =========================================
+
+        due_pool = build_user_review_due_pool(
+            user=self.user,
+            eligible_skill_ids=(
+                self.eligible_skill_ids
+            ),
+            as_of=as_of,
+        )
+
+        self.assertEqual(
+            len(due_pool),
+            1,
+        )
+
+        self.assertEqual(
+            due_pool[0].skill_id,
+            review_skill.pk,
+        )
+
+        self.assertEqual(
+            due_pool[0].observation_count,
+            3,
+        )
+
+        self.assertGreaterEqual(
+            due_pool[0].mastery_estimate,
+            Decimal("0.70"),
+        )
+
+        self.assertEqual(
+            due_pool[0].last_review_evidence_at,
+            review_evidence_at,
+        )
+
+        # =========================================
+        # Fresh current adaptive assessment.
+        # =========================================
+
+        current_started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        self.session = AssessmentSession.objects.get(
+            pk=current_started.session_id
+        )
+
+        result = assemble_adaptive_assessment(
+            user=self.user,
+            session_id=self.session.pk,
+            eligible_skill_ids=(
+                self.eligible_skill_ids
+            ),
+            as_of=as_of,
+        )
+
+        # =========================================
+        # Canonical adaptive contract:
+        # 5 focus Skills x 2 Questions = 10.
+        # =========================================
+
+        self.assertEqual(
+            result.question_count,
+            10,
+        )
+
+        self.assertEqual(
+            len(result.slots),
+            10,
+        )
+
+        focus_counts = {}
+
+        for slot in result.slots:
+            focus_counts[
+                slot.focus_skill_id
+            ] = (
+                    focus_counts.get(
+                        slot.focus_skill_id,
+                        0,
+                    )
+                    + 1
+            )
+
+        self.assertEqual(
+            len(focus_counts),
+            5,
+        )
+
+        self.assertTrue(
+            all(
+                count == 2
+                for count in focus_counts.values()
+            )
+        )
+
+        # =========================================
+        # C3 audit metadata lives on persisted
+        # SessionQuestion rows, NOT on
+        # AdaptiveAssessmentAssemblySlotResult.
+        #
+        # P2-8:
+        # due pool size = 1
+        # -> one review focus Skill
+        # -> two review Questions.
+        # =========================================
+
+        session_questions = list(
+            SessionQuestion.objects
+            .filter(
+                session=self.session,
+            )
+            .order_by(
+                "sequence_number",
+            )
+        )
+
+        self.assertEqual(
+            len(session_questions),
+            10,
+        )
+
+        review_rows = [
+            row
+            for row in session_questions
+            if (
+                    row.selection_reason
+                    == SessionQuestion.SelectionReason.REVIEW
+            )
+        ]
+
+        normal_rows = [
+            row
+            for row in session_questions
+            if (
+                    row.selection_reason
+                    == SessionQuestion.SelectionReason.NORMAL
+            )
+        ]
+
+        self.assertEqual(
+            len(review_rows),
+            2,
+        )
+
+        self.assertEqual(
+            len(normal_rows),
+            8,
+        )
+
+        # =========================================
+        # Map persisted REVIEW rows back to assembly
+        # slots to verify both belong to the one real
+        # review-due Skill.
+        # =========================================
+
+        review_session_question_ids = {
+            row.pk
+            for row in review_rows
+        }
+
+        review_slots = [
+            slot
+            for slot in result.slots
+            if (
+                    slot.session_question_id
+                    in review_session_question_ids
+            )
+        ]
+
+        self.assertEqual(
+            len(review_slots),
+            2,
+        )
+
+        self.assertEqual(
+            {
+                slot.focus_skill_id
+                for slot in review_slots
+            },
+            {
+                review_skill.pk,
+            },
+        )
+
+        # Exactly two Questions belong to the review
+        # focus Skill in the final assessment.
+        self.assertEqual(
+            sum(
+                slot.focus_skill_id
+                == review_skill.pk
+                for slot in result.slots
+            ),
+            2,
+        )
+
+        # =========================================
+        # C3 assignment-time exposure snapshot must
+        # always be frozen as a boolean.
+        # =========================================
+
+        self.assertTrue(
+            all(
+                type(row.was_seen_before) is bool
+                for row in session_questions
+            )
+        )
+
+    def test_adaptive_assembly_persists_seen_snapshot(
+            self,
+    ):
+        seen_question = Question.objects.get(
+            source_id="AASM-A-Q1"
+        )
+
+        # Close current fresh assessment first.
+        abandon_session(
+            user=self.user,
+            session_id=self.session.pk,
+        )
+
+        # =========================================
+        # Historical genuine visual exposure.
+        # =========================================
+
+        historical_started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        historical_added = add_question_to_session(
+            user=self.user,
+            session_id=(
+                historical_started.session_id
+            ),
+            question_id=seen_question.pk,
+        )
+
+        mark_session_question_viewed(
+            user=self.user,
+            session_question_id=(
+                historical_added.session_question_id
+            ),
+        )
+
+        # Abandoned assessment does not create mastery
+        # evidence, but genuine visual exposure remains
+        # valid for was_seen_before.
+        abandon_session(
+            user=self.user,
+            session_id=(
+                historical_started.session_id
+            ),
+        )
+
+        # =========================================
+        # Fresh adaptive assessment.
+        # =========================================
+
+        current_started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        self.session = AssessmentSession.objects.get(
+            pk=current_started.session_id
+        )
+
+        assemble_adaptive_assessment(
+            user=self.user,
+            session_id=self.session.pk,
+            eligible_skill_ids=(
+                self.eligible_skill_ids
+            ),
+        )
+
+        seen_row = SessionQuestion.objects.get(
+            session=self.session,
+            question=seen_question,
+        )
+
+        self.assertEqual(
+            seen_row.selection_reason,
+            SessionQuestion.SelectionReason.NORMAL,
+        )
+
+        self.assertTrue(
+            seen_row.was_seen_before
+        )
+
+        unseen_question = Question.objects.get(
+            source_id="AASM-A-Q2"
+        )
+
+        unseen_row = SessionQuestion.objects.get(
+            session=self.session,
+            question=unseen_question,
+        )
+
+        self.assertFalse(
+            unseen_row.was_seen_before
+        )
+
     def test_assembly_creates_exactly_ten_unique_questions(
         self,
     ):
@@ -6375,10 +9699,12 @@ class AdaptiveAssessmentAssemblyIntegrationTests(TestCase):
         }
 
         def fail_on_sixth_question(
-            *,
-            user,
-            session_id,
-            question_id,
+                *,
+                user,
+                session_id,
+                question_id,
+                selection_reason=None,
+                was_seen_before=None,
         ):
             call_count[
                 "value"
@@ -6393,6 +9719,8 @@ class AdaptiveAssessmentAssemblyIntegrationTests(TestCase):
                 user=user,
                 session_id=session_id,
                 question_id=question_id,
+                selection_reason=selection_reason,
+                was_seen_before=was_seen_before,
             )
 
         with patch(
@@ -6429,6 +9757,47 @@ class AdaptiveAssessmentAssemblyIntegrationTests(TestCase):
                 session=self.session
             ).count(),
             0,
+        )
+
+    def test_adaptive_assembly_persists_normal_selection_metadata(
+            self,
+    ):
+        assemble_adaptive_assessment(
+            user=self.user,
+            session_id=self.session.pk,
+            eligible_skill_ids=(
+                self.eligible_skill_ids
+            ),
+        )
+
+        session_questions = list(
+            SessionQuestion.objects
+            .filter(
+                session=self.session,
+            )
+            .order_by(
+                "sequence_number",
+            )
+        )
+
+        self.assertEqual(
+            len(session_questions),
+            10,
+        )
+
+        self.assertTrue(
+            all(
+                row.selection_reason
+                == SessionQuestion.SelectionReason.NORMAL
+                for row in session_questions
+            )
+        )
+
+        self.assertTrue(
+            all(
+                row.was_seen_before is False
+                for row in session_questions
+            )
         )
 
 class DiagnosticBlueprintTests(TestCase):
@@ -6475,9 +9844,9 @@ class DiagnosticBlueprintTests(TestCase):
             {
                 "ACC-02": 3,
                 "MOVE-01": 3,
-                "VOC-01": 3,
+                "NOM-02": 3,
                 "VERB-05": 3,
-                "VOC-10": 3,
+                "SENT-01": 3,
             },
         )
 
@@ -6499,9 +9868,9 @@ class DiagnosticBlueprintTests(TestCase):
             {
                 "ACC-02": "A1",
                 "MOVE-01": "A1",
-                "VOC-01": "A1",
+                "NOM-02": "A1",
                 "VERB-05": "A2",
-                "VOC-10": "A2",
+                "SENT-01": "A2",
             },
         )
 
@@ -6519,8 +9888,9 @@ class DiagnosticBlueprintTests(TestCase):
             2,
         )
 
-    def test_grammar_anchors_follow_easy_medium_hard_targets(
-        self,
+
+    def test_all_grammar_anchors_follow_easy_medium_hard_targets(
+            self,
     ):
         blueprint = validate_diagnostic_blueprint()
 
@@ -6535,14 +9905,27 @@ class DiagnosticBlueprintTests(TestCase):
                 Decimal("0.5000"),
                 Decimal("0.7500"),
             ],
+            "NOM-02": [
+                Decimal("0.2500"),
+                Decimal("0.5000"),
+                Decimal("0.7500"),
+            ],
             "VERB-05": [
+                Decimal("0.2500"),
+                Decimal("0.5000"),
+                Decimal("0.7500"),
+            ],
+            "SENT-01": [
                 Decimal("0.2500"),
                 Decimal("0.5000"),
                 Decimal("0.7500"),
             ],
         }
 
-        for skill_code, difficulties in expected.items():
+        for (
+                skill_code,
+                expected_difficulties,
+        ) in expected.items():
             actual = [
                 slot.target_difficulty
                 for slot in blueprint
@@ -6551,43 +9934,8 @@ class DiagnosticBlueprintTests(TestCase):
 
             self.assertEqual(
                 actual,
-                difficulties,
+                expected_difficulties,
             )
-
-    def test_vocabulary_targets_match_real_bank_difficulty(
-        self,
-    ):
-        blueprint = validate_diagnostic_blueprint()
-
-        voc_01 = [
-            slot.target_difficulty
-            for slot in blueprint
-            if slot.skill_code == "VOC-01"
-        ]
-
-        voc_10 = [
-            slot.target_difficulty
-            for slot in blueprint
-            if slot.skill_code == "VOC-10"
-        ]
-
-        self.assertEqual(
-            voc_01,
-            [
-                Decimal("0.2500"),
-                Decimal("0.2500"),
-                Decimal("0.2500"),
-            ],
-        )
-
-        self.assertEqual(
-            voc_10,
-            [
-                Decimal("0.5000"),
-                Decimal("0.5000"),
-                Decimal("0.5000"),
-            ],
-        )
 
     def test_inconsistent_cefr_for_same_anchor_is_rejected(
         self,
@@ -6598,7 +9946,7 @@ class DiagnosticBlueprintTests(TestCase):
 
         original = broken[12]
 
-        # Slot 13 is VOC-01 and should remain A1.
+        # Slot 13 is NOM-02 and must remain A1.
         broken[12] = DiagnosticBlueprintSlot(
             slot_number=original.slot_number,
             round_number=original.round_number,
@@ -6623,9 +9971,9 @@ class DiagnosticBlueprintTests(TestCase):
         broken = []
 
         for slot in DIAGNOSTIC_BLUEPRINT_V1:
-            # Convert the whole VOC-10 anchor
+            # Convert the whole SENT-01 anchor
             # from A2 to A1.
-            if slot.skill_code == "VOC-10":
+            if slot.skill_code == "SENT-01":
                 broken.append(
                     DiagnosticBlueprintSlot(
                         slot_number=(
@@ -6698,10 +10046,10 @@ class DiagnosticQuestionSelectionIntegrationTests(TestCase):
             is_active=True,
         )
 
-        cls.voc_a1_skill = Skill.objects.create(
+        cls.nom_a1_skill = Skill.objects.create(
             topic=cls.topic,
-            skill_code="VOC-01",
-            skill_name="Diagnostic VOC-01",
+            skill_code="NOM-02",
+            skill_name="Diagnostic NOM-02",
             cefr_level="A1",
             is_extension=False,
             display_order=3,
@@ -6718,10 +10066,10 @@ class DiagnosticQuestionSelectionIntegrationTests(TestCase):
             is_active=True,
         )
 
-        cls.voc_a2_skill = Skill.objects.create(
+        cls.sent_a2_skill = Skill.objects.create(
             topic=cls.topic,
-            skill_code="VOC-10",
-            skill_name="Diagnostic VOC-10",
+            skill_code="SENT-01",
+            skill_name="Diagnostic SENT-01",
             cefr_level="A2",
             is_extension=False,
             display_order=5,
@@ -6799,47 +10147,52 @@ class DiagnosticQuestionSelectionIntegrationTests(TestCase):
         )
 
         # =========================================
-        # Vocabulary anchors
+        # Replacement Grammar anchors
         #
-        # Real bank semantics:
-        # VOC-01 -> .25
-        # VOC-10 -> .50
+        # Real-bank availability:
+        # NOM-02  -> .25 / .50 / .50
+        # SENT-01 -> .25 / .50 / .75
+        #
+        # The blueprint still targets
+        # .25 / .50 / .75 for both Skills.
+        # NOM-02 therefore exercises the normal
+        # nearest-difficulty fallback in round 3.
         # =========================================
 
-        cls.voc01_q1 = cls.create_primary_question(
-            skill=cls.voc_a1_skill,
-            source_id="DVOC01-001",
+        cls.nom02_q1 = cls.create_primary_question(
+            skill=cls.nom_a1_skill,
+            source_id="DNOM02-001",
             difficulty="0.2500",
         )
 
-        cls.voc01_q2 = cls.create_primary_question(
-            skill=cls.voc_a1_skill,
-            source_id="DVOC01-002",
+        cls.nom02_q2 = cls.create_primary_question(
+            skill=cls.nom_a1_skill,
+            source_id="DNOM02-002",
+            difficulty="0.5000",
+        )
+
+        cls.nom02_q3 = cls.create_primary_question(
+            skill=cls.nom_a1_skill,
+            source_id="DNOM02-003",
+            difficulty="0.5000",
+        )
+
+        cls.sent01_q1 = cls.create_primary_question(
+            skill=cls.sent_a2_skill,
+            source_id="DSENT01-001",
             difficulty="0.2500",
         )
 
-        cls.voc01_q3 = cls.create_primary_question(
-            skill=cls.voc_a1_skill,
-            source_id="DVOC01-003",
-            difficulty="0.2500",
-        )
-
-        cls.voc10_q1 = cls.create_primary_question(
-            skill=cls.voc_a2_skill,
-            source_id="DVOC10-001",
+        cls.sent01_q2 = cls.create_primary_question(
+            skill=cls.sent_a2_skill,
+            source_id="DSENT01-002",
             difficulty="0.5000",
         )
 
-        cls.voc10_q2 = cls.create_primary_question(
-            skill=cls.voc_a2_skill,
-            source_id="DVOC10-002",
-            difficulty="0.5000",
-        )
-
-        cls.voc10_q3 = cls.create_primary_question(
-            skill=cls.voc_a2_skill,
-            source_id="DVOC10-003",
-            difficulty="0.5000",
+        cls.sent01_q3 = cls.create_primary_question(
+            skill=cls.sent_a2_skill,
+            source_id="DSENT01-003",
+            difficulty="0.7500",
         )
 
     @classmethod
@@ -6933,7 +10286,7 @@ class DiagnosticQuestionSelectionIntegrationTests(TestCase):
             0,
         )
 
-    def test_grammar_anchors_select_25_50_75_progression(
+    def test_exact_match_grammar_anchors_select_25_50_75_progression(
         self,
     ):
         plan = plan_diagnostic_questions(
@@ -6953,6 +10306,11 @@ class DiagnosticQuestionSelectionIntegrationTests(TestCase):
                 Decimal("0.7500"),
             ],
             "VERB-05": [
+                Decimal("0.2500"),
+                Decimal("0.5000"),
+                Decimal("0.7500"),
+            ],
+            "SENT-01": [
                 Decimal("0.2500"),
                 Decimal("0.5000"),
                 Decimal("0.7500"),
@@ -6991,7 +10349,7 @@ class DiagnosticQuestionSelectionIntegrationTests(TestCase):
                 ],
             )
 
-    def test_vocabulary_anchors_use_three_distinct_questions_at_real_bank_difficulty(
+    def test_replacement_grammar_anchors_use_three_distinct_questions_at_real_bank_difficulty(
         self,
     ):
         plan = plan_diagnostic_questions(
@@ -6999,71 +10357,89 @@ class DiagnosticQuestionSelectionIntegrationTests(TestCase):
             session_id=self.session.pk,
         )
 
-        voc_01_slots = [
+        nom_02_slots = [
             slot
             for slot in plan
-            if slot.skill_code == "VOC-01"
+            if slot.skill_code == "NOM-02"
         ]
 
-        voc_10_slots = [
+        sent_01_slots = [
             slot
             for slot in plan
-            if slot.skill_code == "VOC-10"
+            if slot.skill_code == "SENT-01"
         ]
 
         self.assertEqual(
-            len(voc_01_slots),
+            len(nom_02_slots),
             3,
         )
 
         self.assertEqual(
-            len(voc_10_slots),
+            len(sent_01_slots),
             3,
         )
 
         self.assertEqual(
             {
                 slot.question_id
-                for slot in voc_01_slots
+                for slot in nom_02_slots
             },
             {
-                self.voc01_q1.pk,
-                self.voc01_q2.pk,
-                self.voc01_q3.pk,
+                self.nom02_q1.pk,
+                self.nom02_q2.pk,
+                self.nom02_q3.pk,
             },
         )
 
         self.assertEqual(
             {
                 slot.question_id
-                for slot in voc_10_slots
+                for slot in sent_01_slots
             },
             {
-                self.voc10_q1.pk,
-                self.voc10_q2.pk,
-                self.voc10_q3.pk,
+                self.sent01_q1.pk,
+                self.sent01_q2.pk,
+                self.sent01_q3.pk,
             },
         )
 
-        self.assertTrue(
-            all(
+        # NOM-02 has no hard item in the current
+        # real bank. Round 3 therefore falls back
+        # to the nearest remaining medium item.
+        self.assertEqual(
+            [
                 slot.question_difficulty
-                == Decimal("0.2500")
-                for slot in voc_01_slots
-            )
+                for slot in nom_02_slots
+            ],
+            [
+                Decimal("0.2500"),
+                Decimal("0.5000"),
+                Decimal("0.5000"),
+            ],
         )
 
-        self.assertTrue(
-            all(
+        # SENT-01 has exact easy / medium / hard
+        # coverage in the current real bank.
+        self.assertEqual(
+            [
                 slot.question_difficulty
-                == Decimal("0.5000")
-                for slot in voc_10_slots
-            )
+                for slot in sent_01_slots
+            ],
+            [
+                Decimal("0.2500"),
+                Decimal("0.5000"),
+                Decimal("0.7500"),
+            ],
         )
 
     def test_historically_unseen_question_beats_seen_exact_difficulty(
         self,
     ):
+        abandon_session(
+            user=self.user,
+            session_id=self.session.pk,
+        )
+
         historical_session = (
             AssessmentSession.objects.create(
                 user=self.user,
@@ -7090,6 +10466,17 @@ class DiagnosticQuestionSelectionIntegrationTests(TestCase):
         abandon_session(
             user=self.user,
             session_id=historical_session.pk,
+        )
+
+        current_started = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.DIAGNOSTIC,
+        )
+
+        self.session = (
+            AssessmentSession.objects.get(
+                pk=current_started.session_id
+            )
         )
 
         plan = plan_diagnostic_questions(
@@ -7236,10 +10623,10 @@ class DiagnosticAssessmentAssemblyIntegrationTests(TestCase):
             is_active=True,
         )
 
-        cls.voc_a1_skill = Skill.objects.create(
+        cls.nom_a1_skill = Skill.objects.create(
             topic=cls.topic,
-            skill_code="VOC-01",
-            skill_name="Diagnostic Assembly VOC-01",
+            skill_code="NOM-02",
+            skill_name="Diagnostic Assembly NOM-02",
             cefr_level="A1",
             is_extension=False,
             display_order=3,
@@ -7256,10 +10643,10 @@ class DiagnosticAssessmentAssemblyIntegrationTests(TestCase):
             is_active=True,
         )
 
-        cls.voc_a2_skill = Skill.objects.create(
+        cls.sent_a2_skill = Skill.objects.create(
             topic=cls.topic,
-            skill_code="VOC-10",
-            skill_name="Diagnostic Assembly VOC-10",
+            skill_code="SENT-01",
+            skill_name="Diagnostic Assembly SENT-01",
             cefr_level="A2",
             is_extension=False,
             display_order=5,
@@ -7311,25 +10698,26 @@ class DiagnosticAssessmentAssemblyIntegrationTests(TestCase):
         )
 
         # =========================================
-        # VOC-01
+        # NOM-02
+        # Real bank: .25 / .50 / .50
         # =========================================
 
-        cls.voc01_q1 = cls.create_question(
-            skill=cls.voc_a1_skill,
-            source_id="DASM-VOC01-001",
+        cls.nom02_q1 = cls.create_question(
+            skill=cls.nom_a1_skill,
+            source_id="DASM-NOM02-001",
             difficulty="0.2500",
         )
 
-        cls.voc01_q2 = cls.create_question(
-            skill=cls.voc_a1_skill,
-            source_id="DASM-VOC01-002",
-            difficulty="0.2500",
+        cls.nom02_q2 = cls.create_question(
+            skill=cls.nom_a1_skill,
+            source_id="DASM-NOM02-002",
+            difficulty="0.5000",
         )
 
-        cls.voc01_q3 = cls.create_question(
-            skill=cls.voc_a1_skill,
-            source_id="DASM-VOC01-003",
-            difficulty="0.2500",
+        cls.nom02_q3 = cls.create_question(
+            skill=cls.nom_a1_skill,
+            source_id="DASM-NOM02-003",
+            difficulty="0.5000",
         )
 
         # =========================================
@@ -7355,25 +10743,26 @@ class DiagnosticAssessmentAssemblyIntegrationTests(TestCase):
         )
 
         # =========================================
-        # VOC-10
+        # SENT-01
+        # Real bank: .25 / .50 / .75
         # =========================================
 
-        cls.voc10_q1 = cls.create_question(
-            skill=cls.voc_a2_skill,
-            source_id="DASM-VOC10-001",
+        cls.sent01_q1 = cls.create_question(
+            skill=cls.sent_a2_skill,
+            source_id="DASM-SENT01-001",
+            difficulty="0.2500",
+        )
+
+        cls.sent01_q2 = cls.create_question(
+            skill=cls.sent_a2_skill,
+            source_id="DASM-SENT01-002",
             difficulty="0.5000",
         )
 
-        cls.voc10_q2 = cls.create_question(
-            skill=cls.voc_a2_skill,
-            source_id="DASM-VOC10-002",
-            difficulty="0.5000",
-        )
-
-        cls.voc10_q3 = cls.create_question(
-            skill=cls.voc_a2_skill,
-            source_id="DASM-VOC10-003",
-            difficulty="0.5000",
+        cls.sent01_q3 = cls.create_question(
+            skill=cls.sent_a2_skill,
+            source_id="DASM-SENT01-003",
+            difficulty="0.7500",
         )
 
     @classmethod
@@ -7493,21 +10882,21 @@ class DiagnosticAssessmentAssemblyIntegrationTests(TestCase):
             [
                 "ACC-02",
                 "MOVE-01",
-                "VOC-01",
+                "NOM-02",
                 "VERB-05",
-                "VOC-10",
+                "SENT-01",
 
                 "ACC-02",
                 "MOVE-01",
-                "VOC-01",
+                "NOM-02",
                 "VERB-05",
-                "VOC-10",
+                "SENT-01",
 
                 "ACC-02",
                 "MOVE-01",
-                "VOC-01",
+                "NOM-02",
                 "VERB-05",
-                "VOC-10",
+                "SENT-01",
             ],
         )
 
@@ -7521,19 +10910,19 @@ class DiagnosticAssessmentAssemblyIntegrationTests(TestCase):
                 Decimal("0.2500"),
                 Decimal("0.2500"),
                 Decimal("0.2500"),
-                Decimal("0.5000"),
+                Decimal("0.2500"),
 
                 Decimal("0.5000"),
                 Decimal("0.5000"),
-                Decimal("0.2500"),
+                Decimal("0.5000"),
                 Decimal("0.5000"),
                 Decimal("0.5000"),
 
                 Decimal("0.7500"),
                 Decimal("0.7500"),
-                Decimal("0.2500"),
                 Decimal("0.7500"),
-                Decimal("0.5000"),
+                Decimal("0.7500"),
+                Decimal("0.7500"),
             ],
         )
 
@@ -7552,23 +10941,28 @@ class DiagnosticAssessmentAssemblyIntegrationTests(TestCase):
     def test_wrong_mode_and_nonempty_session_are_rejected(
         self,
     ):
-        # -----------------------------------------
         # Adaptive mode is invalid.
-        # -----------------------------------------
+        wrong_mode_user = User.objects.create_user(
+            email=(
+                "diagnostic-assembly-"
+                "wrong-mode@example.com"
+            ),
+            password="test-password-123",
+        )
 
         adaptive_session = (
             AssessmentSession.objects.create(
-                user=self.user,
+                user=wrong_mode_user,
                 mode=AssessmentSession.Mode.ADAPTIVE,
                 status=AssessmentSession.Status.ACTIVE,
             )
         )
 
         with self.assertRaises(
-            LearningServiceError
+                LearningServiceError
         ):
             assemble_diagnostic_assessment(
-                user=self.user,
+                user=wrong_mode_user,
                 session_id=adaptive_session.pk,
             )
 
@@ -7615,12 +11009,12 @@ class DiagnosticAssessmentAssemblyIntegrationTests(TestCase):
     def test_insufficient_anchor_bank_is_rejected_without_writes(
         self,
     ):
-        # VOC-10 requires three unique Questions.
+        # SENT-01 requires three unique Questions.
         #
         # Deactivate one, leaving only two.
-        self.voc10_q3.is_active = False
+        self.sent01_q3.is_active = False
 
-        self.voc10_q3.save(
+        self.sent01_q3.save(
             update_fields=[
                 "is_active",
             ]
@@ -7654,10 +11048,12 @@ class DiagnosticAssessmentAssemblyIntegrationTests(TestCase):
         }
 
         def fail_on_ninth_question(
-            *,
-            user,
-            session_id,
-            question_id,
+                *,
+                user,
+                session_id,
+                question_id,
+                selection_reason=None,
+                was_seen_before=None,
         ):
             call_count[
                 "value"
@@ -7673,6 +11069,8 @@ class DiagnosticAssessmentAssemblyIntegrationTests(TestCase):
                 user=user,
                 session_id=session_id,
                 question_id=question_id,
+                selection_reason=selection_reason,
+                was_seen_before=was_seen_before,
             )
 
         with patch(
@@ -7704,6 +11102,47 @@ class DiagnosticAssessmentAssemblyIntegrationTests(TestCase):
             ).count(),
             0,
         )
+
+    def test_diagnostic_assembly_persists_selection_metadata(
+            self,
+    ):
+        assemble_diagnostic_assessment(
+            user=self.user,
+            session_id=self.session.pk,
+        )
+
+        session_questions = list(
+            SessionQuestion.objects
+            .filter(
+                session=self.session,
+            )
+            .order_by(
+                "sequence_number",
+            )
+        )
+
+        self.assertEqual(
+            len(session_questions),
+            15,
+        )
+
+        self.assertTrue(
+            all(
+                row.selection_reason
+                == SessionQuestion.SelectionReason.DIAGNOSTIC
+                for row in session_questions
+            )
+        )
+
+        # Fresh diagnostic fixture has no historical
+        # genuine exposure.
+        self.assertTrue(
+            all(
+                row.was_seen_before is False
+                for row in session_questions
+            )
+        )
+
 
 class ColdStartRoutingTests(TestCase):
     def test_unknown_new_learner_is_asked_about_prior_experience(
@@ -7867,6 +11306,96 @@ class LearnerEntryStateIntegrationTests(TestCase):
             skill=cls.skill,
             is_primary=True,
             weight=Decimal("1.00000"),
+        )
+
+    def test_true_beginner_all_completed_moves_to_adaptive_without_assessment_evidence(
+            self,
+    ):
+        self._set_prior_experience(
+            False
+        )
+
+        lesson = Lesson.objects.create(
+            title=(
+                "Learner Entry Completed "
+                "Beginner Lesson"
+            ),
+            lesson_type="grammar",
+            content={
+                "theory": [],
+                "examples": [],
+                "practice": [],
+            },
+            display_order=1,
+            is_active=True,
+        )
+
+        LessonSkill.objects.create(
+            lesson=lesson,
+            skill=self.skill,
+        )
+
+        completed_at = timezone.now()
+
+        LessonProgress.objects.create(
+            user=self.user,
+            lesson=lesson,
+            status=(
+                LessonProgress.Status.COMPLETED
+            ),
+            completion_ratio=Decimal(
+                "1.0000"
+            ),
+            completed_at=completed_at,
+            last_accessed_at=completed_at,
+        )
+
+        state = resolve_learner_entry_state(
+            user=self.user,
+        )
+
+        # No assessment has happened yet.
+        self.assertFalse(
+            state.has_finalized_assessment_evidence
+        )
+
+        self.assertFalse(
+            state.prior_russian_experience
+        )
+
+        # Completing the actual beginner curriculum
+        # unlocks the first personalized assessment.
+        self.assertEqual(
+            state.route,
+            LearnerEntryRoute.ADAPTIVE,
+        )
+
+        self.assertIsNone(
+            state.active_session_id
+        )
+
+        self.assertIsNone(
+            state.active_assessment_mode
+        )
+
+    def test_true_beginner_without_eligible_lessons_does_not_unlock_adaptive(
+            self,
+    ):
+        self._set_prior_experience(
+            False
+        )
+
+        state = resolve_learner_entry_state(
+            user=self.user,
+        )
+
+        self.assertFalse(
+            state.has_finalized_assessment_evidence
+        )
+
+        self.assertEqual(
+            state.route,
+            LearnerEntryRoute.BEGINNER_PATH,
         )
 
     def _set_prior_experience(
@@ -8061,6 +11590,79 @@ class LearnerEntryStateIntegrationTests(TestCase):
             LearnerEntryRoute.BEGINNER_PATH,
         )
 
+    def test_completed_viewed_diagnostic_moves_learner_to_adaptive(
+            self,
+    ):
+        self._set_prior_experience(
+            True
+        )
+
+        session = self._create_session(
+            mode=AssessmentSession.Mode.DIAGNOSTIC,
+        )
+
+        self._add_question(
+            session=session,
+            viewed=True,
+        )
+
+        # Use the real completion service instead of
+        # manually editing status so this test crosses
+        # the real diagnostic completion boundary.
+        complete_session(
+            user=self.user,
+            session_id=session.pk,
+        )
+
+        session.refresh_from_db()
+
+        self.assertEqual(
+            session.status,
+            AssessmentSession.Status.COMPLETED,
+        )
+
+        self.assertIsNotNone(
+            session.ended_at
+        )
+
+        state = resolve_learner_entry_state(
+            user=self.user,
+        )
+
+        # A viewed Question from a completed diagnostic
+        # is finalized assessment evidence.
+        self.assertTrue(
+            state.has_finalized_assessment_evidence
+        )
+
+        self.assertTrue(
+            state.prior_russian_experience
+        )
+
+        # Placement is finished, therefore the learner
+        # enters the normal adaptive flow.
+        self.assertEqual(
+            state.route,
+            LearnerEntryRoute.ADAPTIVE,
+        )
+
+        self.assertIsNone(
+            state.active_session_id
+        )
+
+        self.assertIsNone(
+            state.active_assessment_mode
+        )
+
+        # The completed diagnostic no longer remains
+        # as an active assessment.
+        self.assertFalse(
+            AssessmentSession.objects.filter(
+                user=self.user,
+                status=AssessmentSession.Status.ACTIVE,
+            ).exists()
+        )
+
     def test_abandoned_viewed_question_does_not_count_as_finalized_evidence(
         self,
     ):
@@ -8173,27 +11775,7 @@ class LearnerEntryStateIntegrationTests(TestCase):
             AssessmentSession.Mode.ADAPTIVE,
         )
 
-    def test_multiple_active_assessments_are_rejected(
-        self,
-    ):
-        self._set_prior_experience(
-            None
-        )
 
-        self._create_session(
-            mode=AssessmentSession.Mode.DIAGNOSTIC,
-        )
-
-        self._create_session(
-            mode=AssessmentSession.Mode.ADAPTIVE,
-        )
-
-        with self.assertRaises(
-            ValueError
-        ):
-            resolve_learner_entry_state(
-                user=self.user,
-            )
 
     def test_resolver_reads_prior_experience_from_database_not_stale_instance(
         self,
@@ -8253,9 +11835,9 @@ class PriorRussianExperienceSubmissionTests(TestCase):
                 "Onboarding MOVE-01",
             ),
             (
-                "VOC-01",
+                "NOM-02",
                 "A1",
-                "Onboarding VOC-01",
+                "Onboarding NOM-02",
             ),
             (
                 "VERB-05",
@@ -8263,9 +11845,9 @@ class PriorRussianExperienceSubmissionTests(TestCase):
                 "Onboarding VERB-05",
             ),
             (
-                "VOC-10",
+                "SENT-01",
                 "A2",
-                "Onboarding VOC-10",
+                "Onboarding SENT-01",
             ),
         )
 
@@ -8334,21 +11916,21 @@ class PriorRussianExperienceSubmissionTests(TestCase):
                 "0.7500",
             ),
 
-            # VOC-01
+            # NOM-02
             (
-                "VOC-01",
-                "ONB-VOC01-001",
+                "NOM-02",
+                "ONB-NOM02-001",
                 "0.2500",
             ),
             (
-                "VOC-01",
-                "ONB-VOC01-002",
-                "0.2500",
+                "NOM-02",
+                "ONB-NOM02-002",
+                "0.5000",
             ),
             (
-                "VOC-01",
-                "ONB-VOC01-003",
-                "0.2500",
+                "NOM-02",
+                "ONB-NOM02-003",
+                "0.5000",
             ),
 
             # VERB-05
@@ -8368,21 +11950,21 @@ class PriorRussianExperienceSubmissionTests(TestCase):
                 "0.7500",
             ),
 
-            # VOC-10
+            # SENT-01
             (
-                "VOC-10",
-                "ONB-VOC10-001",
+                "SENT-01",
+                "ONB-SENT01-001",
+                "0.2500",
+            ),
+            (
+                "SENT-01",
+                "ONB-SENT01-002",
                 "0.5000",
             ),
             (
-                "VOC-10",
-                "ONB-VOC10-002",
-                "0.5000",
-            ),
-            (
-                "VOC-10",
-                "ONB-VOC10-003",
-                "0.5000",
+                "SENT-01",
+                "ONB-SENT01-003",
+                "0.7500",
             ),
         )
 
@@ -8438,6 +12020,487 @@ class PriorRussianExperienceSubmissionTests(TestCase):
         )
 
         self.user.refresh_from_db()
+
+    def test_prior_experience_full_diagnostic_end_to_end(
+            self,
+    ):
+        # =========================================
+        # 1. Prepare answer options
+        # =========================================
+        #
+        # Existing onboarding fixtures intentionally
+        # only guarantee the diagnostic Question Bank.
+        #
+        # For this end-to-end regression, give every
+        # selected multiple-choice Question one correct
+        # and one incorrect option so the real answer
+        # submission service is exercised.
+        # =========================================
+
+        for question in self.questions.values():
+            QuestionOption.objects.create(
+                question=question,
+                option_key="A",
+                option_text="Correct",
+                misconception_code=None,
+                is_correct=True,
+                display_order=1,
+            )
+
+            QuestionOption.objects.create(
+                question=question,
+                option_key="B",
+                option_text="Wrong",
+                misconception_code=(
+                    f"E2E-WRONG-{question.source_id}"
+                ),
+                is_correct=False,
+                display_order=2,
+            )
+
+        # =========================================
+        # 2. Onboarding
+        #
+        # Experienced learner -> diagnostic created
+        # and fully assembled atomically.
+        # =========================================
+
+        onboarding = submit_prior_russian_experience(
+            user=self.user,
+            prior_russian_experience=True,
+        )
+
+        self.assertEqual(
+            onboarding.route,
+            LearnerEntryRoute.RESUME_DIAGNOSTIC,
+        )
+
+        self.assertEqual(
+            onboarding.question_count,
+            15,
+        )
+
+        self.assertIsNotNone(
+            onboarding.assessment_session_id
+        )
+
+        session = AssessmentSession.objects.get(
+            pk=onboarding.assessment_session_id
+        )
+
+        self.assertEqual(
+            session.mode,
+            AssessmentSession.Mode.DIAGNOSTIC,
+        )
+
+        self.assertEqual(
+            session.status,
+            AssessmentSession.Status.ACTIVE,
+        )
+
+        # =========================================
+        # 3. Verify canonical 15-question Placement
+        # =========================================
+
+        session_questions = list(
+            SessionQuestion.objects
+            .filter(
+                session=session,
+            )
+            .order_by(
+                "sequence_number",
+            )
+        )
+
+        self.assertEqual(
+            len(session_questions),
+            15,
+        )
+
+        self.assertEqual(
+            [
+                row.sequence_number
+                for row in session_questions
+            ],
+            list(
+                range(1, 16)
+            ),
+        )
+
+        self.assertEqual(
+            len(
+                {
+                    row.question_id
+                    for row in session_questions
+                }
+            ),
+            15,
+        )
+
+        self.assertTrue(
+            all(
+                row.selection_reason
+                == SessionQuestion.SelectionReason.DIAGNOSTIC
+                for row in session_questions
+            )
+        )
+
+        # =========================================
+        # 4. Answer all 15 using the real service
+        # =========================================
+
+        for session_question in session_questions:
+            result = save_option_answer(
+                user=self.user,
+                session_question_id=(
+                    session_question.pk
+                ),
+                selected_option_key="A",
+                response_time_ms=1000,
+            )
+
+            # Learner-facing save contract intentionally
+            # does NOT expose grading feedback while the
+            # assessment is active.
+            self.assertEqual(
+                result.selected_option_key,
+                "A",
+            )
+
+            self.assertFalse(
+                hasattr(
+                    result,
+                    "is_correct",
+                )
+            )
+
+            # Correctness is stored only in the internal
+            # QuestionAttempt grading snapshot.
+            attempt = QuestionAttempt.objects.get(
+                pk=result.attempt_id
+            )
+
+            self.assertEqual(
+                attempt.session_question_id,
+                session_question.pk,
+            )
+
+            self.assertEqual(
+                attempt.selected_option_key,
+                "A",
+            )
+
+            self.assertTrue(
+                attempt.is_correct
+            )
+
+            self.assertEqual(
+                attempt.response_time_ms,
+                1000,
+            )
+
+        # =========================================
+        # 5. Complete Placement
+        # =========================================
+
+        completed = complete_session(
+            user=self.user,
+            session_id=session.pk,
+        )
+
+        self.assertEqual(
+            completed.session_id,
+            session.pk,
+        )
+
+        self.assertEqual(
+            completed.mode,
+            AssessmentSession.Mode.DIAGNOSTIC,
+        )
+
+        session.refresh_from_db()
+
+        self.assertEqual(
+            session.status,
+            AssessmentSession.Status.COMPLETED,
+        )
+
+        self.assertIsNotNone(
+            session.ended_at
+        )
+
+        # =========================================
+        # 6. Grammar mastery
+        #
+        # Each of five Placement anchors received
+        # exactly three valid observations.
+        #
+        # n=3:
+        # - sufficient for persisted mastery_score
+        # - insufficient to declare mastered
+        # =========================================
+
+        expected_skill_codes = {
+            "ACC-02",
+            "MOVE-01",
+            "NOM-02",
+            "VERB-05",
+            "SENT-01",
+        }
+
+        mastery_rows = list(
+            SkillMastery.objects
+            .filter(
+                user=self.user,
+                skill__skill_code__in=(
+                    expected_skill_codes
+                ),
+            )
+            .select_related(
+                "skill",
+            )
+        )
+
+        self.assertEqual(
+            len(mastery_rows),
+            5,
+        )
+
+        mastery_by_code = {
+            row.skill.skill_code: row
+            for row in mastery_rows
+        }
+
+        self.assertEqual(
+            set(mastery_by_code),
+            expected_skill_codes,
+        )
+
+        for skill_code in expected_skill_codes:
+            state = mastery_by_code[
+                skill_code
+            ]
+
+            self.assertEqual(
+                state.observation_count,
+                3,
+            )
+
+            self.assertEqual(
+                state.correct_attempts,
+                3,
+            )
+
+            self.assertIsNotNone(
+                state.mastery_score
+            )
+
+            self.assertTrue(
+                state.has_sufficient_data
+            )
+
+            # mastered_min_observations = 5
+            self.assertFalse(
+                state.is_mastered
+            )
+
+        # =========================================
+        # 7. Learner route after Placement
+        # =========================================
+
+        learner_state = resolve_learner_entry_state(
+            user=self.user,
+        )
+
+        self.assertTrue(
+            learner_state.has_finalized_assessment_evidence
+        )
+
+        self.assertEqual(
+            learner_state.route,
+            LearnerEntryRoute.ADAPTIVE,
+        )
+
+        self.assertIsNone(
+            learner_state.active_session_id
+        )
+
+        self.assertIsNone(
+            learner_state.active_assessment_mode
+        )
+
+        # =========================================
+        # 8. Placement result API
+        # =========================================
+
+        self.client.force_login(
+            self.user
+        )
+
+        result_url = reverse(
+            "learning_engine:assessment-result",
+            kwargs={
+                "session_id": session.pk,
+            },
+        )
+
+        response = self.client.get(
+            result_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        payload = response.json()
+
+        self.assertEqual(
+            payload["assessment"]["session_id"],
+            session.pk,
+        )
+
+        self.assertEqual(
+            payload["assessment"]["mode"],
+            "diagnostic",
+        )
+
+        self.assertEqual(
+            payload["assessment"]["status"],
+            "completed",
+        )
+
+        # =========================================
+        # 9. Result summary
+        # =========================================
+
+        summary = payload["summary"]
+
+        self.assertEqual(
+            summary["question_count"],
+            15,
+        )
+
+        self.assertEqual(
+            summary["viewed_count"],
+            15,
+        )
+
+        self.assertEqual(
+            summary["answered_count"],
+            15,
+        )
+
+        self.assertEqual(
+            summary["correct_count"],
+            15,
+        )
+
+        self.assertEqual(
+            summary["evidence_question_count"],
+            15,
+        )
+
+        self.assertEqual(
+            summary["evidence_incorrect_count"],
+            0,
+        )
+
+        self.assertEqual(
+            summary["evidence_accuracy"],
+            "1.0000",
+        )
+
+        # =========================================
+        # 10. Result mastery projection
+        # =========================================
+
+        current_mastery = payload[
+            "current_mastery"
+        ]
+
+        self.assertEqual(
+            current_mastery["scope"],
+            "current",
+        )
+
+        result_mastery_by_code = {
+            row["skill_code"]: row
+            for row in current_mastery["skills"]
+        }
+
+        self.assertEqual(
+            set(result_mastery_by_code),
+            expected_skill_codes,
+        )
+
+        for skill_code in expected_skill_codes:
+            row = result_mastery_by_code[
+                skill_code
+            ]
+
+            self.assertEqual(
+                row["observation_count"],
+                3,
+            )
+
+            self.assertEqual(
+                row["correct_attempts"],
+                3,
+            )
+
+            self.assertIsNotNone(
+                row["mastery_score"]
+            )
+
+            self.assertTrue(
+                row["has_sufficient_data"]
+            )
+
+            self.assertFalse(
+                row["is_mastered"]
+            )
+
+        # =========================================
+        # 11. Result continuation
+        # =========================================
+
+        self.assertEqual(
+            payload[
+                "next_action"
+            ][
+                "route"
+            ],
+            LearnerEntryRoute.ADAPTIVE.value,
+        )
+
+        self.assertIsNone(
+            payload[
+                "next_action"
+            ][
+                "active_assessment"
+            ]
+        )
+
+        self.assertIsNone(
+            payload[
+                "next_action"
+            ][
+                "beginner_lesson"
+            ]
+        )
+
+        # Result GET must not fabricate persisted
+        # Recommendation data.
+        self.assertNotIn(
+            "recommendation",
+            payload,
+        )
+
+        self.assertNotIn(
+            "recommendations",
+            payload,
+        )
 
     def test_beginner_answer_is_persisted_without_assessment(
         self,
@@ -8660,10 +12723,10 @@ class PriorRussianExperienceSubmissionTests(TestCase):
     def test_diagnostic_failure_rolls_back_answer_and_session(
         self,
     ):
-        # Diagnostic requires three VOC-10
+        # Diagnostic requires three SENT-01
         # Questions. Make the bank insufficient.
         question = self.questions[
-            "ONB-VOC10-003"
+            "ONB-SENT01-003"
         ]
 
         question.is_active = False
@@ -9585,43 +13648,6 @@ class LearnerEntryAPITests(TestCase):
             payload["beginner_lesson"]
         )
 
-    def test_multiple_active_assessments_return_conflict(
-        self,
-    ):
-        self._create_active_session(
-            mode=(
-                AssessmentSession.Mode.DIAGNOSTIC
-            ),
-        )
-
-        self._create_active_session(
-            mode=(
-                AssessmentSession.Mode.ADAPTIVE
-            ),
-        )
-
-        self._login()
-
-        response = self.client.get(
-            self.url
-        )
-
-        self.assertEqual(
-            response.status_code,
-            409,
-        )
-
-        payload = response.json()
-
-        self.assertEqual(
-            payload["error"],
-            "learner_state_conflict",
-        )
-
-        self.assertIn(
-            "more than one active",
-            payload["detail"].lower(),
-        )
 
 class PriorExperienceAPITests(TestCase):
     @classmethod
@@ -9676,9 +13702,9 @@ class PriorExperienceAPITests(TestCase):
         skill_specs = (
             ("ACC-02", "A1"),
             ("MOVE-01", "A1"),
-            ("VOC-01", "A1"),
+            ("NOM-02", "A1"),
             ("VERB-05", "A2"),
-            ("VOC-10", "A2"),
+            ("SENT-01", "A2"),
         )
 
         cls.diagnostic_skills = {}
@@ -9715,17 +13741,17 @@ class PriorExperienceAPITests(TestCase):
             ("MOVE-01", "API-MOVE-050", "0.5000"),
             ("MOVE-01", "API-MOVE-075", "0.7500"),
 
-            ("VOC-01", "API-VOC01-001", "0.2500"),
-            ("VOC-01", "API-VOC01-002", "0.2500"),
-            ("VOC-01", "API-VOC01-003", "0.2500"),
+            ("NOM-02", "API-NOM02-001", "0.2500"),
+            ("NOM-02", "API-NOM02-002", "0.5000"),
+            ("NOM-02", "API-NOM02-003", "0.5000"),
 
             ("VERB-05", "API-VERB-025", "0.2500"),
             ("VERB-05", "API-VERB-050", "0.5000"),
             ("VERB-05", "API-VERB-075", "0.7500"),
 
-            ("VOC-10", "API-VOC10-001", "0.5000"),
-            ("VOC-10", "API-VOC10-002", "0.5000"),
-            ("VOC-10", "API-VOC10-003", "0.5000"),
+            ("SENT-01", "API-SENT01-001", "0.2500"),
+            ("SENT-01", "API-SENT01-002", "0.5000"),
+            ("SENT-01", "API-SENT01-003", "0.7500"),
         )
 
         cls.diagnostic_questions = {}
@@ -10101,10 +14127,10 @@ class PriorExperienceAPITests(TestCase):
     ):
         self._login()
 
-        # Leave only two active VOC-10 Questions.
+        # Leave only two active SENT-01 Questions.
         broken_question = (
             self.diagnostic_questions[
-                "API-VOC10-003"
+                "API-SENT01-003"
             ]
         )
 
@@ -12030,17 +16056,6 @@ class ActiveAssessmentDetailAPITests(TestCase):
             ],
         )
 
-        self.assertEqual(
-            [
-                row["question"]["source_id"]
-                for row in payload["questions"]
-            ],
-            [
-                "ASSESS-DETAIL-Q001",
-                "ASSESS-DETAIL-Q002",
-            ],
-        )
-
     def test_question_options_are_safe_and_deterministically_ordered(
         self,
     ):
@@ -12259,6 +16274,7 @@ class ActiveAssessmentDetailAPITests(TestCase):
         )
 
         forbidden_keys = {
+            "source_id",
             "is_correct",
             "correct_answer",
             "accepted_answers",
@@ -12922,9 +16938,13 @@ class AssessmentQuestionActivityAPITests(TestCase):
         # Correct SessionQuestion but wrong session in URL.
         # --------------------------------------------------
 
-        second_started = start_session(
-            user=self.user,
-            mode=AssessmentSession.Mode.ADAPTIVE,
+        wrong_session = (
+            AssessmentSession.objects.create(
+                user=self.user,
+                mode=AssessmentSession.Mode.ADAPTIVE,
+                status=AssessmentSession.Status.COMPLETED,
+                ended_at=timezone.now(),
+            )
         )
 
         wrong_session_viewed_url = reverse(
@@ -12932,7 +16952,7 @@ class AssessmentQuestionActivityAPITests(TestCase):
             "assessment-question-viewed",
             kwargs={
                 "session_id": (
-                    second_started.session_id
+                    wrong_session.pk
                 ),
                 "session_question_id": (
                     self.session_question.pk
@@ -12945,7 +16965,7 @@ class AssessmentQuestionActivityAPITests(TestCase):
             "assessment-question-active-time",
             kwargs={
                 "session_id": (
-                    second_started.session_id
+                    wrong_session.pk
                 ),
                 "session_question_id": (
                     self.session_question.pk
@@ -13048,6 +17068,14 @@ class AssessmentQuestionActivityAPITests(TestCase):
         self,
     ):
         self._login()
+
+        # setUp() created an ACTIVE adaptive assessment.
+        # Close it before creating owned diagnostic
+        # sessions for terminal-state API checks.
+        abandon_session(
+            user=self.user,
+            session_id=self.session.pk,
+        )
 
         for status in (
             AssessmentSession.Status.COMPLETED,
@@ -13432,11 +17460,6 @@ class AssessmentQuestionAnswerAPITests(TestCase):
         )
 
         self.assertEqual(
-            payload["source_id"],
-            self.question.source_id,
-        )
-
-        self.assertEqual(
             payload["sequence_number"],
             1,
         )
@@ -13476,6 +17499,7 @@ class AssessmentQuestionAnswerAPITests(TestCase):
 
         # But learner response must not know.
         forbidden_keys = {
+            "source_id",
             "is_correct",
             "correct_answer",
             "accepted_answers",
@@ -13661,6 +17685,7 @@ class AssessmentQuestionAnswerAPITests(TestCase):
         )
 
         forbidden_keys = {
+            "source_id",
             "is_correct",
             "correct_answer",
             "accepted_answers",
@@ -13940,9 +17965,13 @@ class AssessmentQuestionAnswerAPITests(TestCase):
         # -> 404
         # ==================================================
 
-        another_started = start_session(
-            user=self.user,
-            mode=AssessmentSession.Mode.ADAPTIVE,
+        wrong_session = (
+            AssessmentSession.objects.create(
+                user=self.user,
+                mode=AssessmentSession.Mode.ADAPTIVE,
+                status=AssessmentSession.Status.COMPLETED,
+                ended_at=timezone.now(),
+            )
         )
 
         wrong_session_url = reverse(
@@ -13950,7 +17979,7 @@ class AssessmentQuestionAnswerAPITests(TestCase):
             "assessment-question-answer",
             kwargs={
                 "session_id": (
-                    another_started.session_id
+                    wrong_session.pk
                 ),
                 "session_question_id": (
                     self.session_question.pk
@@ -14022,6 +18051,11 @@ class AssessmentQuestionAnswerAPITests(TestCase):
         # Correct resource, but session no longer ACTIVE
         # -> 409
         # ==================================================
+
+        abandon_session(
+            user=self.user,
+            session_id=self.session.pk,
+        )
 
         for status in (
             AssessmentSession.Status.COMPLETED,
@@ -15470,24 +19504,23 @@ class AssessmentResultAPITests(TestCase):
             "assessment_result_unavailable",
         )
 
-        # Separate abandoned session.
-        abandoned_started = start_session(
-            user=self.user,
-            mode=AssessmentSession.Mode.DIAGNOSTIC,
-        )
-
-        abandon_session(
-            user=self.user,
-            session_id=(
-                abandoned_started.session_id
-            ),
+        # Separate owned terminal session. Terminal
+        # sessions may coexist with the current ACTIVE
+        # assessment without violating G3.
+        abandoned_session = (
+            AssessmentSession.objects.create(
+                user=self.user,
+                mode=AssessmentSession.Mode.DIAGNOSTIC,
+                status=AssessmentSession.Status.ABANDONED,
+                ended_at=timezone.now(),
+            )
         )
 
         abandoned_url = reverse(
             "learning_engine:assessment-result",
             kwargs={
                 "session_id": (
-                    abandoned_started.session_id
+                    abandoned_session.pk
                 ),
             },
         )
@@ -15897,6 +19930,86 @@ class AssessmentResultCurrentMasteryAPITests(TestCase):
 
         self.session.refresh_from_db()
 
+    def test_diagnostic_result_does_not_fabricate_recommendation(
+            self,
+    ):
+        self.session.mode = (
+            AssessmentSession.Mode.DIAGNOSTIC
+        )
+
+        self.session.save(
+            update_fields=[
+                "mode",
+            ]
+        )
+
+        self._complete_primary_assessment()
+
+        self._login()
+
+        first_response = self.client.get(
+            self.url
+        )
+
+        second_response = self.client.get(
+            self.url
+        )
+
+        self.assertEqual(
+            first_response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            second_response.status_code,
+            200,
+        )
+
+        first_payload = first_response.json()
+        second_payload = second_response.json()
+
+        self.assertEqual(
+            first_payload["assessment"]["mode"],
+            "diagnostic",
+        )
+
+        # Assessment-result is a read projection.
+        #
+        # It must not fabricate a historical
+        # Recommendation from CURRENT mastery.
+        forbidden_fields = {
+            "recommendation",
+            "recommendations",
+            "recommended_skill",
+            "recommended_skill_id",
+            "recommended_lesson",
+            "recommended_lesson_id",
+            "trigger_test_id",
+        }
+
+        for field in forbidden_fields:
+            self.assertNotIn(
+                field,
+                first_payload,
+            )
+
+        # Repeated GET remains deterministic/read-only.
+        self.assertEqual(
+            first_payload,
+            second_payload,
+        )
+
+        # Diagnostic completion still routes the learner
+        # into the adaptive flow.
+        self.assertEqual(
+            first_payload[
+                "next_action"
+            ][
+                "route"
+            ],
+            LearnerEntryRoute.ADAPTIVE.value,
+        )
+
     def test_current_mastery_matches_canonical_persisted_state(
         self,
     ):
@@ -16018,6 +20131,246 @@ class AssessmentResultCurrentMasteryAPITests(TestCase):
             ),
         )
 
+    def test_diagnostic_result_does_not_infer_mastery_for_unviewed_skill(
+            self,
+    ):
+        # Convert this assessment fixture into Placement.
+        self.session.mode = (
+            AssessmentSession.Mode.DIAGNOSTIC
+        )
+
+        self.session.save(
+            update_fields=[
+                "mode",
+            ]
+        )
+
+        # -----------------------------------------
+        # Add one Grammar Skill represented in the
+        # diagnostic but never viewed by the learner.
+        #
+        # It must appear as insufficient-data,
+        # not as mastery=0 and not as mastered.
+        # -----------------------------------------
+
+        unviewed_question = Question.objects.create(
+            source_id="RESULT-DIAG-UNVIEWED-Q001",
+            question_type="multiple_choice",
+            item_format="single_choice",
+            question_text=(
+                "Diagnostic unviewed result question."
+            ),
+            cefr_level="A1",
+            is_extension=False,
+            difficulty_score=Decimal("0.5000"),
+            correct_answer=None,
+            accepted_answers=None,
+            explanation=None,
+            audio_url=None,
+            is_active=True,
+        )
+
+        QuestionSkill.objects.create(
+            question=unviewed_question,
+            skill=self.replacement_skill,
+            is_primary=True,
+            weight=Decimal("1.00000"),
+        )
+
+        QuestionOption.objects.create(
+            question=unviewed_question,
+            option_key="A",
+            option_text="Correct",
+            misconception_code=None,
+            is_correct=True,
+            display_order=1,
+        )
+
+        QuestionOption.objects.create(
+            question=unviewed_question,
+            option_key="B",
+            option_text="Wrong",
+            misconception_code="diag_wrong",
+            is_correct=False,
+            display_order=2,
+        )
+
+        added = add_question_to_session(
+            user=self.user,
+            session_id=self.session.pk,
+            question_id=unviewed_question.pk,
+        )
+
+        unviewed_session_question = (
+            SessionQuestion.objects.get(
+                pk=added.session_question_id
+            )
+        )
+
+        self.assertIsNone(
+            unviewed_session_question.first_viewed_at
+        )
+
+        # Existing helper produces three valid
+        # observations for historical_skill:
+        #
+        # correct / correct / incorrect
+        #
+        # Then completes the assessment.
+        self._complete_primary_assessment()
+
+        self._login()
+
+        response = self.client.get(
+            self.url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        payload = response.json()
+
+        # -----------------------------------------
+        # Result is explicitly Placement/Diagnostic.
+        # -----------------------------------------
+
+        self.assertEqual(
+            payload["assessment"]["mode"],
+            "diagnostic",
+        )
+
+        self.assertEqual(
+            payload["assessment"]["status"],
+            "completed",
+        )
+
+        # -----------------------------------------
+        # Current mastery projection
+        # -----------------------------------------
+
+        current_mastery = payload[
+            "current_mastery"
+        ]
+
+        self.assertEqual(
+            current_mastery["scope"],
+            "current",
+        )
+
+        self.assertFalse(
+            current_mastery[
+                "is_historical_assessment_snapshot"
+            ]
+        )
+
+        by_code = {
+            row["skill_code"]: row
+            for row in current_mastery["skills"]
+        }
+
+        self.assertEqual(
+            set(by_code),
+            {
+                "RESULT-MASTERY-A1",
+                "RESULT-MASTERY-NEW",
+            },
+        )
+
+        # -----------------------------------------
+        # Measured Skill
+        #
+        # n=3 -> sufficient mastery estimate,
+        # but n<5 -> must NOT claim mastered.
+        # -----------------------------------------
+
+        measured = by_code[
+            "RESULT-MASTERY-A1"
+        ]
+
+        self.assertEqual(
+            measured["observation_count"],
+            3,
+        )
+
+        self.assertEqual(
+            measured["correct_attempts"],
+            2,
+        )
+
+        self.assertIsNotNone(
+            measured["mastery_score"]
+        )
+
+        self.assertTrue(
+            measured["has_sufficient_data"]
+        )
+
+        self.assertFalse(
+            measured["is_mastered"]
+        )
+
+        # -----------------------------------------
+        # Unviewed / unmeasured Skill
+        #
+        # Placement selected the Question, but the
+        # learner never viewed it.
+        #
+        # Therefore:
+        # observation_count = 0
+        # mastery_score = NULL
+        # insufficient data
+        # not mastered
+        # -----------------------------------------
+
+        unmeasured = by_code[
+            "RESULT-MASTERY-NEW"
+        ]
+
+        self.assertEqual(
+            unmeasured["observation_count"],
+            0,
+        )
+
+        self.assertEqual(
+            unmeasured["correct_attempts"],
+            0,
+        )
+
+        self.assertIsNone(
+            unmeasured["mastery_score"]
+        )
+
+        self.assertFalse(
+            unmeasured["has_sufficient_data"]
+        )
+
+        self.assertFalse(
+            unmeasured["is_mastered"]
+        )
+
+        # -----------------------------------------
+        # Placement completion continues into the
+        # normal adaptive flow.
+        # -----------------------------------------
+
+        next_action = payload[
+            "next_action"
+        ]
+
+        self.assertEqual(
+            next_action["route"],
+            LearnerEntryRoute.ADAPTIVE.value,
+        )
+
+        self.assertIsNone(
+            next_action["active_assessment"]
+        )
+
+        self.assertIsNone(
+            next_action["beginner_lesson"]
+        )
     def test_result_never_claims_mastery_before_after_or_delta(
         self,
     ):
@@ -16410,4 +20763,1973 @@ class AssessmentResultCurrentMasteryAPITests(TestCase):
         self.assertNotIn(
             "RESULT-MASTERY-NEW",
             mastery_codes,
+        )
+
+class AdaptiveAssessmentStartAPITests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            email="adaptive-start@example.com",
+            password="test-password-123",
+            prior_russian_experience=True,
+        )
+
+        cls.topic = Topic.objects.create(
+            topic_name="Adaptive Start Topic",
+            category="grammar",
+            display_order=32000,
+            is_active=True,
+        )
+
+        cls.core_skills = []
+        cls.core_questions = []
+
+        # Five eligible core Skills x two Questions
+        # gives the canonical ten-question pool.
+        for index in range(1, 6):
+            cefr_level = (
+                "A1"
+                if index <= 3
+                else "A2"
+            )
+
+            skill = Skill.objects.create(
+                topic=cls.topic,
+                skill_code=f"ASTART-{index:02d}",
+                skill_name=(
+                    f"Adaptive Start Skill {index}"
+                ),
+                cefr_level=cefr_level,
+                is_extension=False,
+                display_order=index,
+                is_active=True,
+            )
+
+            cls.core_skills.append(skill)
+
+            for question_index, difficulty in (
+                (1, "0.4000"),
+                (2, "0.6000"),
+            ):
+                question = Question.objects.create(
+                    source_id=(
+                        f"ASTART-Q{index:02d}-"
+                        f"{question_index}"
+                    ),
+                    question_type="multiple_choice",
+                    item_format="single_choice",
+                    question_text=(
+                        f"Adaptive start question "
+                        f"{index}-{question_index}."
+                    ),
+                    cefr_level=cefr_level,
+                    is_extension=False,
+                    difficulty_score=Decimal(
+                        difficulty
+                    ),
+                    correct_answer=None,
+                    accepted_answers=None,
+                    explanation=None,
+                    audio_url=None,
+                    is_active=True,
+                )
+
+                QuestionSkill.objects.create(
+                    question=question,
+                    skill=skill,
+                    is_primary=True,
+                    weight=Decimal("1.00000"),
+                )
+
+                cls.core_questions.append(
+                    question
+                )
+
+        # B1 extension exists in the taxonomy but must
+        # remain outside the temporary G2 eligibility
+        # policy. F1 will decide the final B1 behavior.
+        cls.extension_skill = Skill.objects.create(
+            topic=cls.topic,
+            skill_code="ASTART-B1-EXT",
+            skill_name="Adaptive Start B1 Extension",
+            cefr_level="B1",
+            is_extension=True,
+            display_order=99,
+            is_active=True,
+        )
+
+        for question_index in (1, 2):
+            extension_question = Question.objects.create(
+                source_id=(
+                    f"ASTART-B1-Q{question_index}"
+                ),
+                question_type="multiple_choice",
+                item_format="single_choice",
+                question_text=(
+                    f"Adaptive start B1 extension "
+                    f"question {question_index}."
+                ),
+                cefr_level="B1",
+                is_extension=True,
+                difficulty_score=Decimal("0.7000"),
+                correct_answer=None,
+                accepted_answers=None,
+                explanation=None,
+                audio_url=None,
+                is_active=True,
+            )
+
+            QuestionSkill.objects.create(
+                question=extension_question,
+                skill=cls.extension_skill,
+                is_primary=True,
+                weight=Decimal("1.00000"),
+            )
+
+    def setUp(self):
+        self.url = reverse(
+            "learning_engine:adaptive-assessment-start"
+        )
+
+    def _login(self, user=None):
+        if user is None:
+            user = self.user
+
+        self.client.force_login(user)
+
+    def _create_finalized_evidence(
+        self,
+        *,
+        user=None,
+    ):
+        if user is None:
+            user = self.user
+
+        started = start_session(
+            user=user,
+            mode=AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        added = add_question_to_session(
+            user=user,
+            session_id=started.session_id,
+            question_id=self.core_questions[0].pk,
+        )
+
+        # Viewed + unanswered is finalized incorrect
+        # assessment evidence under the canonical rule.
+        mark_session_question_viewed(
+            user=user,
+            session_question_id=(
+                added.session_question_id
+            ),
+        )
+
+        complete_session(
+            user=user,
+            session_id=started.session_id,
+        )
+
+        state = resolve_learner_entry_state(
+            user=user,
+        )
+
+        self.assertEqual(
+            state.route,
+            LearnerEntryRoute.ADAPTIVE,
+        )
+
+        return AssessmentSession.objects.get(
+            pk=started.session_id
+        )
+
+    def test_eligibility_includes_core_a1_a2_and_excludes_b1_extension(
+        self,
+    ):
+        eligible_ids = (
+            resolve_adaptive_eligible_skill_ids(
+                user=self.user,
+            )
+        )
+
+        self.assertEqual(
+            set(eligible_ids),
+            {
+                skill.pk
+                for skill in self.core_skills
+            },
+        )
+
+        self.assertNotIn(
+            self.extension_skill.pk,
+            eligible_ids,
+        )
+
+    def test_service_starts_complete_ten_question_adaptive_assessment(
+        self,
+    ):
+        self._create_finalized_evidence()
+
+        result = (
+            start_or_resume_adaptive_assessment(
+                user=self.user,
+            )
+        )
+
+        self.assertEqual(
+            result.action.value,
+            "started",
+        )
+
+        self.assertEqual(
+            result.mode,
+            AssessmentSession.Mode.ADAPTIVE,
+        )
+
+        self.assertEqual(
+            result.status,
+            AssessmentSession.Status.ACTIVE,
+        )
+
+        self.assertEqual(
+            result.question_count,
+            10,
+        )
+
+        session = AssessmentSession.objects.get(
+            pk=result.session_id
+        )
+
+        self.assertEqual(
+            session.session_questions.count(),
+            10,
+        )
+
+        self.assertEqual(
+            AssessmentSession.objects.filter(
+                user=self.user,
+                status=AssessmentSession.Status.ACTIVE,
+            ).count(),
+            1,
+        )
+
+        state = resolve_learner_entry_state(
+            user=self.user,
+        )
+
+        self.assertEqual(
+            state.route,
+            LearnerEntryRoute.RESUME_ADAPTIVE,
+        )
+
+        self.assertEqual(
+            state.active_session_id,
+            session.pk,
+        )
+
+    def test_service_resumes_same_complete_active_assessment(
+        self,
+    ):
+        self._create_finalized_evidence()
+
+        first = (
+            start_or_resume_adaptive_assessment(
+                user=self.user,
+            )
+        )
+
+        second = (
+            start_or_resume_adaptive_assessment(
+                user=self.user,
+            )
+        )
+
+        self.assertEqual(
+            first.action.value,
+            "started",
+        )
+
+        self.assertEqual(
+            second.action.value,
+            "resumed",
+        )
+
+        self.assertEqual(
+            second.session_id,
+            first.session_id,
+        )
+
+        self.assertEqual(
+            second.question_count,
+            10,
+        )
+
+        self.assertEqual(
+            AssessmentSession.objects.filter(
+                user=self.user,
+                status=AssessmentSession.Status.ACTIVE,
+            ).count(),
+            1,
+        )
+
+    def test_beginner_without_finalized_evidence_cannot_start_adaptive(
+        self,
+    ):
+        beginner = User.objects.create_user(
+            email="adaptive-start-beginner@example.com",
+            password="test-password-123",
+            prior_russian_experience=False,
+        )
+
+        self._login(beginner)
+
+        response = self.client.post(
+            self.url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            409,
+        )
+
+        self.assertEqual(
+            response.json()["error"],
+            "adaptive_start_conflict",
+        )
+
+        self.assertEqual(
+            AssessmentSession.objects.filter(
+                user=beginner,
+            ).count(),
+            0,
+        )
+
+    def test_unanswered_onboarding_cannot_start_adaptive(
+            self,
+    ):
+        unanswered = User.objects.create_user(
+            email="adaptive-start-unanswered@example.com",
+            password="test-password-123",
+            prior_russian_experience=None,
+        )
+
+        self._login(unanswered)
+
+        response = self.client.post(
+            self.url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            409,
+        )
+
+        self.assertEqual(
+            response.json()["error"],
+            "adaptive_start_conflict",
+        )
+
+        unanswered.refresh_from_db()
+
+        self.assertIsNone(
+            unanswered.prior_russian_experience,
+        )
+
+        self.assertEqual(
+            AssessmentSession.objects.filter(
+                user=unanswered,
+            ).count(),
+            0,
+        )
+
+    def test_active_diagnostic_blocks_adaptive_start(
+        self,
+    ):
+        self._create_finalized_evidence()
+
+        diagnostic = start_session(
+            user=self.user,
+            mode=AssessmentSession.Mode.DIAGNOSTIC,
+        )
+
+        self._login()
+
+        response = self.client.post(
+            self.url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            409,
+        )
+
+        self.assertEqual(
+            response.json()["error"],
+            "adaptive_start_conflict",
+        )
+
+        active = AssessmentSession.objects.get(
+            pk=diagnostic.session_id
+        )
+
+        self.assertEqual(
+            active.mode,
+            AssessmentSession.Mode.DIAGNOSTIC,
+        )
+
+        self.assertEqual(
+            active.status,
+            AssessmentSession.Status.ACTIVE,
+        )
+
+        self.assertEqual(
+            AssessmentSession.objects.filter(
+                user=self.user,
+                status=AssessmentSession.Status.ACTIVE,
+            ).count(),
+            1,
+        )
+
+    def test_api_starts_then_resumes_same_adaptive_assessment(
+        self,
+    ):
+        self._create_finalized_evidence()
+        self._login()
+
+        first_response = self.client.post(
+            self.url
+        )
+
+        self.assertEqual(
+            first_response.status_code,
+            200,
+        )
+
+        first_payload = first_response.json()
+
+        self.assertEqual(
+            first_payload["action"],
+            "started",
+        )
+
+        self.assertEqual(
+            first_payload["route"],
+            "resume_adaptive",
+        )
+
+        first_active = (
+            first_payload["active_assessment"]
+        )
+
+        self.assertEqual(
+            first_active["mode"],
+            "adaptive",
+        )
+
+        self.assertEqual(
+            first_active["status"],
+            "active",
+        )
+
+        self.assertEqual(
+            first_active["question_count"],
+            10,
+        )
+
+        second_response = self.client.post(
+            self.url
+        )
+
+        self.assertEqual(
+            second_response.status_code,
+            200,
+        )
+
+        second_payload = second_response.json()
+
+        self.assertEqual(
+            second_payload["action"],
+            "resumed",
+        )
+
+        self.assertEqual(
+            second_payload[
+                "active_assessment"
+            ][
+                "session_id"
+            ],
+            first_active["session_id"],
+        )
+
+        self.assertEqual(
+            AssessmentSession.objects.filter(
+                user=self.user,
+                status=AssessmentSession.Status.ACTIVE,
+            ).count(),
+            1,
+        )
+
+    def test_api_rejects_client_supplied_eligibility_payload(
+        self,
+    ):
+        self._create_finalized_evidence()
+        self._login()
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps(
+                {
+                    "eligible_skill_ids": [
+                        self.core_skills[0].pk,
+                    ],
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
+
+        self.assertEqual(
+            response.json()["error"],
+            "unexpected_payload",
+        )
+
+        self.assertFalse(
+            AssessmentSession.objects.filter(
+                user=self.user,
+                status=AssessmentSession.Status.ACTIVE,
+            ).exists()
+        )
+
+    def test_assembly_failure_rolls_back_new_active_session(
+        self,
+    ):
+        self._create_finalized_evidence()
+
+        with patch(
+            "learning_engine.services."
+            "assemble_adaptive_assessment",
+            side_effect=LearningServiceError(
+                "Forced adaptive assembly failure."
+            ),
+        ):
+            with self.assertRaises(
+                LearningServiceError
+            ):
+                start_or_resume_adaptive_assessment(
+                    user=self.user,
+                )
+
+        self.assertFalse(
+            AssessmentSession.objects.filter(
+                user=self.user,
+                status=AssessmentSession.Status.ACTIVE,
+            ).exists()
+        )
+
+        # Historical finalized evidence remains intact.
+        self.assertEqual(
+            AssessmentSession.objects.filter(
+                user=self.user,
+                status=AssessmentSession.Status.COMPLETED,
+            ).count(),
+            1,
+        )
+
+class AdaptivePortfolioE1RegressionTests(TestCase):
+    """
+    Regression tests for tester finding E1.
+
+    The adaptive assessment must combine remediation
+    with exploration instead of repeatedly testing
+    only the learner's weakest Skills.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            email="e1-portfolio@example.com",
+            password="test-password-123",
+        )
+
+        cls.topic = Topic.objects.create(
+            topic_name="E1 Portfolio Topic",
+            category="grammar",
+            display_order=15000,
+            is_active=True,
+        )
+
+        # Deliberately NOT alphabetical.
+        #
+        # Curriculum order is entirely controlled by
+        # display_order.
+        specs = [
+            ("ZZ-WEAK-1", 1),
+            ("AA-WEAK-2", 2),
+            ("YY-WEAK-3", 3),
+
+            ("MM-EXP-1", 4),
+            ("BB-EXP-2", 5),
+            ("XX-EXP-3", 6),
+            ("CC-EXP-4", 7),
+            ("WW-EXP-5", 8),
+            ("DD-EXP-6", 9),
+        ]
+
+        cls.skills = []
+
+        for skill_code, display_order in specs:
+            skill = Skill.objects.create(
+                topic=cls.topic,
+                skill_code=skill_code,
+                skill_name=(
+                    f"E1 {skill_code}"
+                ),
+                cefr_level="A1",
+                is_extension=False,
+                display_order=display_order,
+                is_active=True,
+            )
+
+            cls.skills.append(
+                skill
+            )
+
+            # Two normal candidate Questions per Skill.
+            for question_number in (
+                1,
+                2,
+            ):
+                cls._create_question(
+                    skill=skill,
+                    source_id=(
+                        f"E1-{skill_code}-"
+                        f"POOL-{question_number}"
+                    ),
+                )
+
+    @patch(
+        "learning_engine.adaptive_preparation."
+        "rank_review_question_candidates"
+    )
+    @patch(
+        "learning_engine.adaptive_preparation."
+        "build_user_review_due_pool"
+    )
+    def test_planner_uses_two_questions_in_review_rank_order(
+            self,
+            mock_review_pool,
+            mock_review_ranking,
+    ):
+        as_of = timezone.now()
+
+        review_skill = self.skills[8]
+
+        mock_review_pool.return_value = (
+            ReviewSkillCandidate(
+                skill_id=review_skill.pk,
+                skill_code=review_skill.skill_code,
+                mastery_estimate=Decimal("0.80"),
+                observation_count=3,
+                last_review_evidence_at=(
+                        as_of
+                        - timedelta(days=14)
+                ),
+            ),
+        )
+
+        captured_review_order = []
+
+        def reverse_review_ranking(
+                *,
+                candidates,
+                target_difficulty,
+        ):
+            ranked = tuple(
+                reversed(
+                    tuple(candidates)
+                )
+            )
+
+            captured_review_order.extend(
+                row.question_id
+                for row in ranked
+            )
+
+            return ranked
+
+        mock_review_ranking.side_effect = (
+            reverse_review_ranking
+        )
+
+        session = self._start_current_session()
+
+        prepared = (
+            prepare_adaptive_assessment_candidates(
+                user=self.user,
+                session_id=session.pk,
+                eligible_skill_ids=[
+                    skill.pk
+                    for skill in self.skills
+                ],
+                as_of=as_of,
+            )
+        )
+
+        plan = plan_adaptive_assessment(
+            skill_candidates=prepared,
+        )
+
+        review_slots = [
+            slot
+            for slot in plan
+            if slot.focus_skill_id
+               == review_skill.pk
+        ]
+
+        # Current adaptive contract:
+        # five focus Skills x two Questions.
+        self.assertEqual(
+            len(review_slots),
+            2,
+        )
+
+        self.assertGreaterEqual(
+            len(captured_review_order),
+            2,
+        )
+
+        # Planner must consume the review Skill's
+        # ranked Question order rather than re-ranking
+        # the Questions itself.
+        self.assertEqual(
+            [
+                slot.question_id
+                for slot in review_slots
+            ],
+            captured_review_order[:2],
+        )
+
+        # The final assessment remains exactly 10 Questions.
+        self.assertEqual(
+            len(plan),
+            10,
+        )
+
+    @patch(
+        "learning_engine.adaptive_preparation."
+        "rank_review_question_candidates"
+    )
+    @patch(
+        "learning_engine.adaptive_preparation."
+        "build_user_review_due_pool"
+    )
+    def test_reserved_review_skill_uses_review_question_ranking(
+            self,
+            mock_review_pool,
+            mock_review_ranking,
+    ):
+        as_of = timezone.now()
+
+        review_skill = self.skills[8]
+
+        mock_review_pool.return_value = (
+            ReviewSkillCandidate(
+                skill_id=review_skill.pk,
+                skill_code=review_skill.skill_code,
+                mastery_estimate=Decimal(
+                    "0.80"
+                ),
+                observation_count=3,
+                last_review_evidence_at=(
+                        as_of
+                        - timedelta(days=14)
+                ),
+            ),
+        )
+
+        # Preserve the Question candidates passed to
+        # the review ranker, but deliberately reverse
+        # their order so we can observe the wiring.
+        def reverse_review_ranking(
+                *,
+                candidates,
+                target_difficulty,
+        ):
+            return tuple(
+                reversed(
+                    tuple(candidates)
+                )
+            )
+
+        mock_review_ranking.side_effect = (
+            reverse_review_ranking
+        )
+
+        session = (
+            self._start_current_session()
+        )
+
+        prepared = (
+            prepare_adaptive_assessment_candidates(
+                user=self.user,
+                session_id=session.pk,
+                eligible_skill_ids=[
+                    skill.pk
+                    for skill in self.skills
+                ],
+                as_of=as_of,
+            )
+        )
+
+        self.assertEqual(
+            prepared[0].skill_id,
+            review_skill.pk,
+        )
+
+        self.assertEqual(
+            mock_review_ranking.call_count,
+            1,
+        )
+
+        # Fixture provides two Questions per Skill.
+        self.assertEqual(
+            len(
+                prepared[0].ranked_question_ids
+            ),
+            2,
+        )
+
+    @classmethod
+    def _create_question(
+        cls,
+        *,
+        skill,
+        source_id,
+    ):
+        question = Question.objects.create(
+            source_id=source_id,
+            question_type="multiple_choice",
+            item_format="single_choice",
+            question_text=(
+                f"E1 question {source_id}."
+            ),
+            cefr_level="A1",
+            is_extension=False,
+            difficulty_score=Decimal(
+                "0.5000"
+            ),
+            correct_answer=None,
+            accepted_answers=None,
+            explanation=None,
+            audio_url=None,
+            is_active=True,
+        )
+
+        QuestionSkill.objects.create(
+            question=question,
+            skill=skill,
+            is_primary=True,
+            weight=Decimal("1.00000"),
+        )
+
+        QuestionOption.objects.create(
+            question=question,
+            option_key="A",
+            option_text="Wrong",
+            misconception_code="e1_wrong",
+            is_correct=False,
+            display_order=1,
+        )
+
+        QuestionOption.objects.create(
+            question=question,
+            option_key="B",
+            option_text="Correct",
+            misconception_code=None,
+            is_correct=True,
+            display_order=2,
+        )
+
+        QuestionOption.objects.create(
+            question=question,
+            option_key="C",
+            option_text="Wrong 2",
+            misconception_code="e1_wrong",
+            is_correct=False,
+            display_order=3,
+        )
+
+        return question
+
+    def _record_evidence(
+        self,
+        *,
+        skill,
+        is_correct,
+        tag,
+    ):
+        """
+        Create exactly one finalized viewed assessment
+        observation for one Skill.
+        """
+
+        evidence_question = (
+            self._create_question(
+                skill=skill,
+                source_id=(
+                    f"E1-EVIDENCE-{tag}"
+                ),
+            )
+        )
+
+        started = start_session(
+            user=self.user,
+            mode=(
+                AssessmentSession.Mode.ADAPTIVE
+            ),
+        )
+
+        added = add_question_to_session(
+            user=self.user,
+            session_id=started.session_id,
+            question_id=evidence_question.pk,
+        )
+
+        mark_session_question_viewed(
+            user=self.user,
+            session_question_id=(
+                added.session_question_id
+            ),
+        )
+
+        save_option_answer(
+            user=self.user,
+            session_question_id=(
+                added.session_question_id
+            ),
+            selected_option_key=(
+                "B"
+                if is_correct
+                else "A"
+            ),
+        )
+
+        complete_session(
+            user=self.user,
+            session_id=started.session_id,
+        )
+
+    def _start_current_session(
+        self,
+    ):
+        started = start_session(
+            user=self.user,
+            mode=(
+                AssessmentSession.Mode.ADAPTIVE
+            ),
+        )
+
+        return AssessmentSession.objects.get(
+            pk=started.session_id
+        )
+
+    def _prepare(
+        self,
+        *,
+        session,
+    ):
+        return (
+            prepare_adaptive_assessment_candidates(
+                user=self.user,
+                session_id=session.pk,
+                eligible_skill_ids=[
+                    skill.pk
+                    for skill in self.skills
+                ],
+            )
+        )
+
+    def test_weak_learner_gets_two_remediation_and_three_exploration_skills(
+        self,
+    ):
+        # Three Skills are equally weak.
+        #
+        # Old E1 behavior:
+        # all high-priority weak Skills would occupy
+        # the adaptive focus set.
+        for index in range(3):
+            self._record_evidence(
+                skill=self.skills[index],
+                is_correct=False,
+                tag=f"WEAK-{index}",
+            )
+
+        session = (
+            self._start_current_session()
+        )
+
+        prepared = self._prepare(
+            session=session,
+        )
+
+        expected_focus_ids = [
+            self.skills[0].pk,
+            self.skills[1].pk,
+
+            self.skills[3].pk,
+            self.skills[4].pk,
+            self.skills[5].pk,
+        ]
+
+        self.assertEqual(
+            [
+                row.skill_id
+                for row in prepared[:5]
+            ],
+            expected_focus_ids,
+        )
+
+        self.assertEqual(
+            [
+                row.selection_rank
+                for row in prepared[:5]
+            ],
+            [
+                1,
+                2,
+                3,
+                4,
+                5,
+            ],
+        )
+
+        # Third weak Skill must be reserve, not one
+        # of the five initial focus Skills.
+        self.assertNotIn(
+            self.skills[2].pk,
+            expected_focus_ids,
+        )
+
+        plan = plan_adaptive_assessment(
+            skill_candidates=prepared,
+        )
+
+        self.assertEqual(
+            [
+                slot.focus_skill_id
+                for slot in plan[:5]
+            ],
+            expected_focus_ids,
+        )
+
+        # With two available Questions per focus Skill,
+        # normal v2 assembly should distribute two
+        # Questions to each of the five focus Skills.
+        focus_counts = {}
+
+        for slot in plan:
+            focus_counts[
+                slot.focus_skill_id
+            ] = (
+                focus_counts.get(
+                    slot.focus_skill_id,
+                    0,
+                )
+                + 1
+            )
+
+        for skill_id in expected_focus_ids:
+            self.assertEqual(
+                focus_counts.get(
+                    skill_id,
+                    0,
+                ),
+                2,
+            )
+
+    @patch(
+        "learning_engine.adaptive_preparation."
+        "build_user_review_due_pool"
+    )
+    def test_backlog_of_eight_reserves_two_review_slots(
+            self,
+            mock_review_pool,
+    ):
+        as_of = timezone.now()
+
+        # Existing fixture has 9 viable Skills.
+        #
+        # Add two more cold exploration Skills so that:
+        #
+        # 8 Skills = review backlog
+        # 3 Skills = non-review exploration
+        #
+        # This lets us verify that P2-8 reserves exactly
+        # two review slots without starving exploration.
+        extra_skills = []
+
+        for offset in range(2):
+            skill = Skill.objects.create(
+                topic=self.topic,
+                skill_code=(
+                    f"EXTRA-EXP-{offset + 1}"
+                ),
+                skill_name=(
+                    f"Extra exploration {offset + 1}"
+                ),
+                cefr_level="A1",
+                is_extension=False,
+                display_order=10 + offset,
+                is_active=True,
+            )
+
+            extra_skills.append(
+                skill
+            )
+
+            for question_number in (
+                    1,
+                    2,
+            ):
+                self._create_question(
+                    skill=skill,
+                    source_id=(
+                        f"D2-P28-EXTRA-"
+                        f"{offset + 1}-"
+                        f"{question_number}"
+                    ),
+                )
+
+        all_skills = [
+            *self.skills,
+            *extra_skills,
+        ]
+
+        # First eight existing Skills form the mocked
+        # deterministic review backlog.
+        #
+        # Pool size = 8 must activate TWO review slots.
+        review_backlog_skills = (
+            self.skills[:8]
+        )
+
+        mock_review_pool.return_value = tuple(
+            ReviewSkillCandidate(
+                skill_id=skill.pk,
+                skill_code=skill.skill_code,
+                mastery_estimate=Decimal(
+                    "0.80"
+                ),
+                observation_count=3,
+                last_review_evidence_at=(
+                        as_of
+                        - timedelta(
+                    days=30 + index
+                )
+                ),
+            )
+            for index, skill
+            in enumerate(
+                review_backlog_skills
+            )
+        )
+
+        session = (
+            self._start_current_session()
+        )
+
+        prepared = (
+            prepare_adaptive_assessment_candidates(
+                user=self.user,
+                session_id=session.pk,
+                eligible_skill_ids=[
+                    skill.pk
+                    for skill in all_skills
+                ],
+                as_of=as_of,
+            )
+        )
+
+        expected_focus_ids = [
+            # P2-8 guaranteed review slots.
+            self.skills[0].pk,
+            self.skills[1].pk,
+
+            # Exactly three non-review exploration slots.
+            self.skills[8].pk,
+            extra_skills[0].pk,
+            extra_skills[1].pk,
+        ]
+
+        actual_focus_ids = [
+            row.skill_id
+            for row in prepared[:5]
+        ]
+
+        self.assertEqual(
+            actual_focus_ids,
+            expected_focus_ids,
+        )
+
+        # The third review-due Skill must remain reserve:
+        # backlog >= 8 gives TWO guaranteed review slots,
+        # not three.
+        self.assertNotIn(
+            self.skills[2].pk,
+            actual_focus_ids,
+        )
+
+        self.assertEqual(
+            [
+                row.selection_rank
+                for row in prepared[:5]
+            ],
+            [
+                1,
+                2,
+                3,
+                4,
+                5,
+            ],
+        )
+
+    @patch(
+        "learning_engine.adaptive_preparation."
+        "build_user_review_due_pool"
+    )
+    def test_backlog_of_eight_persists_four_review_questions(
+            self,
+            mock_review_pool,
+    ):
+        as_of = timezone.now()
+
+        review_backlog_skills = (
+            self.skills[:8]
+        )
+
+        # Mock the already-canonical due pool.
+        #
+        # First candidate must be the oldest review
+        # evidence, followed deterministically by the
+        # next-oldest candidates.
+        mock_review_pool.return_value = tuple(
+            ReviewSkillCandidate(
+                skill_id=skill.pk,
+                skill_code=skill.skill_code,
+                mastery_estimate=Decimal("0.80"),
+                observation_count=3,
+                last_review_evidence_at=(
+                        as_of
+                        - timedelta(
+                    days=40 - index
+                )
+                ),
+            )
+            for index, skill
+            in enumerate(
+                review_backlog_skills
+            )
+        )
+
+        session = self._start_current_session()
+
+        result = assemble_adaptive_assessment(
+            user=self.user,
+            session_id=session.pk,
+            eligible_skill_ids=[
+                skill.pk
+                for skill in self.skills
+            ],
+            as_of=as_of,
+        )
+
+        # =========================================
+        # Canonical adaptive contract:
+        # 5 focus Skills x 2 Questions = 10.
+        # =========================================
+
+        self.assertEqual(
+            result.question_count,
+            10,
+        )
+
+        self.assertEqual(
+            len(result.slots),
+            10,
+        )
+
+        focus_counts = {}
+
+        for slot in result.slots:
+            focus_counts[
+                slot.focus_skill_id
+            ] = (
+                    focus_counts.get(
+                        slot.focus_skill_id,
+                        0,
+                    )
+                    + 1
+            )
+
+        self.assertEqual(
+            len(focus_counts),
+            5,
+        )
+
+        self.assertTrue(
+            all(
+                count == 2
+                for count in focus_counts.values()
+            )
+        )
+
+        # =========================================
+        # C3 audit metadata lives on persisted
+        # SessionQuestion rows.
+        # =========================================
+
+        session_questions = list(
+            SessionQuestion.objects
+            .filter(
+                session=session,
+            )
+            .order_by(
+                "sequence_number",
+            )
+        )
+
+        self.assertEqual(
+            len(session_questions),
+            10,
+        )
+
+        review_rows = [
+            row
+            for row in session_questions
+            if (
+                    row.selection_reason
+                    == SessionQuestion.SelectionReason.REVIEW
+            )
+        ]
+
+        normal_rows = [
+            row
+            for row in session_questions
+            if (
+                    row.selection_reason
+                    == SessionQuestion.SelectionReason.NORMAL
+            )
+        ]
+
+        # =========================================
+        # P2-8:
+        #
+        # backlog >= 8
+        # -> exactly TWO review focus Skills
+        # -> two Questions each
+        # -> FOUR REVIEW Questions.
+        # =========================================
+
+        self.assertEqual(
+            len(review_rows),
+            4,
+        )
+
+        self.assertEqual(
+            len(normal_rows),
+            6,
+        )
+
+        # Map persisted REVIEW rows back to the
+        # assembly result to inspect focus_skill_id.
+        review_session_question_ids = {
+            row.pk
+            for row in review_rows
+        }
+
+        review_slots = [
+            slot
+            for slot in result.slots
+            if (
+                    slot.session_question_id
+                    in review_session_question_ids
+            )
+        ]
+
+        self.assertEqual(
+            len(review_slots),
+            4,
+        )
+
+        review_focus_ids = {
+            slot.focus_skill_id
+            for slot in review_slots
+        }
+
+        # Exactly the first two candidates from the
+        # canonical review backlog receive guaranteed
+        # REVIEW focus.
+        self.assertEqual(
+            review_focus_ids,
+            {
+                self.skills[0].pk,
+                self.skills[1].pk,
+            },
+        )
+
+        review_counts = {}
+
+        for slot in review_slots:
+            review_counts[
+                slot.focus_skill_id
+            ] = (
+                    review_counts.get(
+                        slot.focus_skill_id,
+                        0,
+                    )
+                    + 1
+            )
+
+        self.assertEqual(
+            review_counts,
+            {
+                self.skills[0].pk: 2,
+                self.skills[1].pk: 2,
+            },
+        )
+
+        # Third due Skill must not silently become
+        # another guaranteed REVIEW focus.
+        self.assertNotIn(
+            self.skills[2].pk,
+            review_focus_ids,
+        )
+
+        # All audit snapshots must be frozen booleans.
+        self.assertTrue(
+            all(
+                type(row.was_seen_before) is bool
+                for row in session_questions
+            )
+        )
+
+
+    @patch(
+        "learning_engine.adaptive_preparation."
+        "build_user_review_due_pool"
+    )
+    def test_one_d2_review_slot_counts_toward_e1_remediation_cap(
+        self,
+        mock_review_pool,
+    ):
+        # Three existing E1 remediation candidates.
+        for index in range(3):
+            self._record_evidence(
+                skill=self.skills[index],
+                is_correct=False,
+                tag=f"D2-E1-WEAK-{index}",
+            )
+
+        as_of = timezone.now()
+
+        # Deliberately choose the LAST curriculum Skill
+        # as the guaranteed review Skill.
+        #
+        # Without D2 reservation it would never enter
+        # this focus portfolio.
+        review_skill = self.skills[8]
+
+        mock_review_pool.return_value = (
+            ReviewSkillCandidate(
+                skill_id=review_skill.pk,
+                skill_code=(
+                    review_skill.skill_code
+                ),
+                mastery_estimate=Decimal(
+                    "0.80"
+                ),
+                observation_count=3,
+                last_review_evidence_at=(
+                    as_of
+                    - timedelta(days=14)
+                ),
+            ),
+        )
+
+        session = (
+            self._start_current_session()
+        )
+
+        prepared = (
+            prepare_adaptive_assessment_candidates(
+                user=self.user,
+                session_id=session.pk,
+                eligible_skill_ids=[
+                    skill.pk
+                    for skill in self.skills
+                ],
+                as_of=as_of,
+            )
+        )
+
+        expected_focus_ids = [
+            # D2 guaranteed review.
+            self.skills[8].pk,
+
+            # Only ONE old E1 remediation slot remains,
+            # because review already consumes one of
+            # the cap of two.
+            self.skills[0].pk,
+
+            # Three exploration slots remain.
+            self.skills[3].pk,
+            self.skills[4].pk,
+            self.skills[5].pk,
+        ]
+
+        self.assertEqual(
+            [
+                row.skill_id
+                for row in prepared[:5]
+            ],
+            expected_focus_ids,
+        )
+
+        # The other weak Skills remain reserves.
+        self.assertNotIn(
+            self.skills[1].pk,
+            expected_focus_ids,
+        )
+
+        self.assertNotIn(
+            self.skills[2].pk,
+            expected_focus_ids,
+        )
+
+    def test_strong_observed_skills_do_not_block_curriculum_exploration(
+        self,
+    ):
+        # First three Skills have evidence, but it is
+        # successful evidence.
+        for index in range(3):
+            self._record_evidence(
+                skill=self.skills[index],
+                is_correct=True,
+                tag=f"STRONG-{index}",
+            )
+
+        session = (
+            self._start_current_session()
+        )
+
+        prepared = self._prepare(
+            session=session,
+        )
+
+        # Cold Skills should be explored in curriculum
+        # display_order:
+        #
+        # MM -> BB -> XX -> CC -> WW
+        #
+        # NOT alphabetically:
+        # BB -> CC -> DD -> MM -> WW...
+        expected_focus = (
+            self.skills[3:8]
+        )
+
+        self.assertEqual(
+            [
+                row.skill_code
+                for row in prepared[:5]
+            ],
+            [
+                skill.skill_code
+                for skill in expected_focus
+            ],
+        )
+
+        self.assertEqual(
+            [
+                row.skill_code
+                for row in prepared[:5]
+            ],
+            [
+                "MM-EXP-1",
+                "BB-EXP-2",
+                "XX-EXP-3",
+                "CC-EXP-4",
+                "WW-EXP-5",
+            ],
+        )
+
+    def test_next_assessment_moves_to_next_unseen_exploration_skills(
+        self,
+    ):
+        # Keep three weak Skills available for
+        # remediation.
+        for index in range(3):
+            self._record_evidence(
+                skill=self.skills[index],
+                is_correct=False,
+                tag=f"PROGRESS-WEAK-{index}",
+            )
+
+        first_session = (
+            self._start_current_session()
+        )
+
+        first_prepared = self._prepare(
+            session=first_session,
+        )
+
+        self.assertEqual(
+            [
+                row.skill_id
+                for row in first_prepared[:5]
+            ],
+            [
+                self.skills[0].pk,
+                self.skills[1].pk,
+
+                self.skills[3].pk,
+                self.skills[4].pk,
+                self.skills[5].pk,
+            ],
+        )
+
+        # We only needed preparation here.
+        # Close this ACTIVE session before creating
+        # finalized evidence.
+        abandon_session(
+            user=self.user,
+            session_id=first_session.pk,
+        )
+
+        # The three exploration Skills from the first
+        # portfolio now receive successful evidence.
+        for index in (
+            3,
+            4,
+            5,
+        ):
+            self._record_evidence(
+                skill=self.skills[index],
+                is_correct=True,
+                tag=f"PROGRESS-EXP-{index}",
+            )
+
+        second_session = (
+            self._start_current_session()
+        )
+
+        second_prepared = self._prepare(
+            session=second_session,
+        )
+
+        # Same two remediation Skills remain,
+        # but exploration must advance to the next
+        # unseen curriculum Skills.
+        self.assertEqual(
+            [
+                row.skill_id
+                for row in second_prepared[:5]
+            ],
+            [
+                self.skills[0].pk,
+                self.skills[1].pk,
+
+                self.skills[6].pk,
+                self.skills[7].pk,
+                self.skills[8].pk,
+            ],
+        )
+
+
+class BeginnerAdaptiveEligibilityTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            email=(
+                "beginner-adaptive-"
+                "eligibility@example.com"
+            ),
+            password="test-password-123",
+            prior_russian_experience=False,
+        )
+
+        cls.topic = Topic.objects.create(
+            topic_name=(
+                "Beginner Adaptive "
+                "Eligibility Topic"
+            ),
+            category="grammar",
+            display_order=33000,
+            is_active=True,
+        )
+
+        cls.learned_skill = (
+            Skill.objects.create(
+                topic=cls.topic,
+                skill_code="BEGINNER-LEARNED-A1",
+                skill_name=(
+                    "Beginner Learned A1"
+                ),
+                cefr_level="A1",
+                is_extension=False,
+                display_order=1,
+                is_active=True,
+            )
+        )
+
+        cls.unlearned_a1_skill = (
+            Skill.objects.create(
+                topic=cls.topic,
+                skill_code="BEGINNER-UNLEARNED-A1",
+                skill_name=(
+                    "Beginner Unlearned A1"
+                ),
+                cefr_level="A1",
+                is_extension=False,
+                display_order=2,
+                is_active=True,
+            )
+        )
+
+        cls.unlearned_a2_skill = (
+            Skill.objects.create(
+                topic=cls.topic,
+                skill_code="BEGINNER-UNLEARNED-A2",
+                skill_name=(
+                    "Beginner Unlearned A2"
+                ),
+                cefr_level="A2",
+                is_extension=False,
+                display_order=3,
+                is_active=True,
+            )
+        )
+
+        cls.lesson = Lesson.objects.create(
+            title=(
+                "Beginner Learned "
+                "Eligibility Lesson"
+            ),
+            lesson_type="grammar",
+            content={
+                "theory": [],
+                "examples": [],
+                "practice": [],
+            },
+            display_order=1,
+            is_active=True,
+        )
+
+        LessonSkill.objects.create(
+            lesson=cls.lesson,
+            skill=cls.learned_skill,
+        )
+
+    def test_true_beginner_adaptive_scope_uses_only_completed_lesson_skills(
+        self,
+    ):
+        completed_at = timezone.now()
+
+        LessonProgress.objects.create(
+            user=self.user,
+            lesson=self.lesson,
+            status=(
+                LessonProgress.Status.COMPLETED
+            ),
+            completion_ratio=Decimal(
+                "1.0000"
+            ),
+            completed_at=completed_at,
+            last_accessed_at=completed_at,
+        )
+
+        eligible_ids = (
+            resolve_adaptive_eligible_skill_ids(
+                user=self.user,
+            )
+        )
+
+        self.assertEqual(
+            eligible_ids,
+            (
+                self.learned_skill.pk,
+            ),
+        )
+
+        self.assertNotIn(
+            self.unlearned_a1_skill.pk,
+            eligible_ids,
+        )
+
+        self.assertNotIn(
+            self.unlearned_a2_skill.pk,
+            eligible_ids,
+        )
+
+class H1CSRFProtectionTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            email="h1-csrf@example.com",
+            password="test-password-123",
+        )
+
+    def setUp(self):
+        # Django TestCase client bình thường không enforce CSRF.
+        # H1 cần client thực sự chạy CSRF checks.
+        self.client = self.client_class(
+            enforce_csrf_checks=True,
+        )
+        self.client.force_login(self.user)
+
+    def test_all_state_changing_learner_endpoints_require_csrf(
+        self,
+    ):
+        missing_id = 999999999
+
+        cases = [
+            (
+                "POST",
+                reverse(
+                    "learning_engine:"
+                    "submit-prior-experience"
+                ),
+            ),
+            (
+                "POST",
+                reverse(
+                    "learning_engine:lesson-start",
+                    kwargs={
+                        "lesson_id": missing_id,
+                    },
+                ),
+            ),
+            (
+                "PATCH",
+                reverse(
+                    "learning_engine:"
+                    "lesson-progress-update",
+                    kwargs={
+                        "lesson_id": missing_id,
+                    },
+                ),
+            ),
+            (
+                "POST",
+                reverse(
+                    "learning_engine:lesson-complete",
+                    kwargs={
+                        "lesson_id": missing_id,
+                    },
+                ),
+            ),
+            (
+                "POST",
+                reverse(
+                    "learning_engine:"
+                    "assessment-question-viewed",
+                    kwargs={
+                        "session_id": missing_id,
+                        "session_question_id": missing_id,
+                    },
+                ),
+            ),
+            (
+                "POST",
+                reverse(
+                    "learning_engine:"
+                    "assessment-question-active-time",
+                    kwargs={
+                        "session_id": missing_id,
+                        "session_question_id": missing_id,
+                    },
+                ),
+            ),
+            (
+                "POST",
+                reverse(
+                    "learning_engine:"
+                    "assessment-question-answer",
+                    kwargs={
+                        "session_id": missing_id,
+                        "session_question_id": missing_id,
+                    },
+                ),
+            ),
+            (
+                "POST",
+                reverse(
+                    "learning_engine:assessment-complete",
+                    kwargs={
+                        "session_id": missing_id,
+                    },
+                ),
+            ),
+            (
+                "POST",
+                reverse(
+                    "learning_engine:assessment-abandon",
+                    kwargs={
+                        "session_id": missing_id,
+                    },
+                ),
+            ),
+            (
+                "POST",
+                reverse(
+                    "learning_engine:"
+                    "adaptive-assessment-start"
+                ),
+            ),
+        ]
+
+        for method, url in cases:
+            with self.subTest(
+                method=method,
+                url=url,
+            ):
+                response = self.client.generic(
+                    method,
+                    url,
+                    data=b"{}",
+                    content_type="application/json",
+                )
+
+                self.assertEqual(
+                    response.status_code,
+                    403,
+                )
+
+    def test_valid_csrf_token_passes_csrf_layer(
+        self,
+    ):
+        csrf_token = "a" * 32
+
+        self.client.cookies["csrftoken"] = csrf_token
+
+        response = self.client.post(
+            reverse(
+                "learning_engine:"
+                "submit-prior-experience"
+            ),
+            data={
+                "prior_russian_experience": False,
+            },
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=csrf_token,
+        )
+
+        # Có thể là 200 hoặc business-level response khác,
+        # nhưng tuyệt đối không được bị CSRF middleware chặn.
+        self.assertNotEqual(
+            response.status_code,
+            403,
         )

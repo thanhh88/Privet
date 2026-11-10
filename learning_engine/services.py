@@ -1,7 +1,10 @@
 from dataclasses import dataclass
 from datetime import datetime
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import (
+    IntegrityError,
+    transaction,
+)
 from django.db.models import Max
 from django.utils import timezone
 from enum import Enum
@@ -53,6 +56,10 @@ from learning_engine.learner_entry import (
 from curriculum.models import (
     Lesson,
     LessonProgress,
+    Skill,
+)
+from learning_engine.adaptive_eligibility import (
+    resolve_adaptive_eligible_skill_ids,
 )
 
 class LearningServiceError(ValueError):
@@ -104,6 +111,9 @@ class SessionQuestionResult:
     sequence_number: int
     first_viewed_at: datetime | None
 
+    selection_reason: str | None
+    was_seen_before: bool | None
+
 @dataclass(frozen=True)
 class SessionQuestionTimingResult:
     session_question_id: int
@@ -116,6 +126,24 @@ class AssessmentSessionResult:
     session_id: int
     mode: str
     status: str
+
+class AdaptiveAssessmentOpenAction(
+    str,
+    Enum,
+):
+    STARTED = "started"
+    RESUMED = "resumed"
+
+
+@dataclass(frozen=True)
+class AdaptiveAssessmentOpenResult:
+    action: AdaptiveAssessmentOpenAction
+
+    session_id: int
+    mode: str
+    status: str
+
+    question_count: int
 
 def _normalize_option_key(value):
     if not isinstance(value, str):
@@ -275,12 +303,19 @@ def add_question_to_session(
     user,
     session_id,
     question_id,
+    selection_reason=None,
+    was_seen_before=None,
 ):
     """
     Add one Question to an active assessment session.
 
     A Question may appear only once in a session.
     The session determines sequence_number.
+
+    C3 planner metadata may be supplied by the caller
+    and is frozen on SessionQuestion at selection time.
+    Legacy/test callers may temporarily omit it while
+    the nullable migration phase remains in effect.
     """
 
     try:
@@ -314,6 +349,24 @@ def add_question_to_session(
             "Assessment questions may only "
             "be added to adaptive or "
             "diagnostic sessions."
+        )
+
+    if (
+        selection_reason is not None
+        and selection_reason
+        not in SessionQuestion.SelectionReason.values
+    ):
+        raise LearningServiceError(
+            "Unsupported SessionQuestion "
+            "selection_reason."
+        )
+
+    if (
+        was_seen_before is not None
+        and type(was_seen_before) is not bool
+    ):
+        raise LearningServiceError(
+            "was_seen_before must be bool or null."
         )
 
     try:
@@ -359,6 +412,8 @@ def add_question_to_session(
         skill_snapshot=skill_snapshot,
 
         sequence_number=sequence_number,
+        selection_reason=selection_reason,
+        was_seen_before=was_seen_before,
     )
 
     try:
@@ -383,6 +438,12 @@ def add_question_to_session(
         ),
         first_viewed_at=(
             session_question.first_viewed_at
+        ),
+        selection_reason=(
+            session_question.selection_reason
+        ),
+        was_seen_before=(
+            session_question.was_seen_before
         ),
     )
 
@@ -459,6 +520,14 @@ def select_and_add_adaptive_question(
         user=user,
         session_id=session_id,
         question_id=selected.question_id,
+        selection_reason=(
+            SessionQuestion
+            .SelectionReason
+            .NORMAL
+        ),
+        was_seen_before=(
+            selected.was_seen_before
+        ),
     )
 
 @transaction.atomic
@@ -588,6 +657,8 @@ def assemble_adaptive_assessment(
             user=user,
             session_id=session.pk,
             question_id=slot.question_id,
+            selection_reason=slot.selection_reason,
+            was_seen_before=slot.was_seen_before,
         )
 
         # Because assembly began from an empty,
@@ -641,6 +712,207 @@ def assemble_adaptive_assessment(
 
         slots=tuple(
             written_slots
+        ),
+    )
+
+@transaction.atomic
+def start_or_resume_adaptive_assessment(
+    *,
+    user,
+):
+    """
+    Open the learner's canonical adaptive assessment.
+
+    Allowed current learner states:
+    - ADAPTIVE:
+        create + atomically assemble a new
+        10-question adaptive assessment;
+
+    - RESUME_ADAPTIVE:
+        return the already-active assessment.
+
+    Any other learner-entry state is rejected.
+
+    Client never supplies eligible Skill IDs.
+    """
+
+    if user.pk is None:
+        raise LearningServiceError(
+            "User must be saved before an adaptive "
+            "assessment can be opened."
+        )
+
+    UserModel = get_user_model()
+
+    try:
+        locked_user = (
+            UserModel.objects
+            .select_for_update()
+            .get(
+                pk=user.pk,
+            )
+        )
+
+    except UserModel.DoesNotExist as exc:
+        raise LearningServiceError(
+            "User does not exist."
+        ) from exc
+
+    # =================================================
+    # Authoritative current learner state
+    # =================================================
+
+    try:
+        state = resolve_learner_entry_state(
+            user=locked_user,
+        )
+
+    except ValueError as exc:
+        raise LearningServiceError(
+            str(exc)
+        ) from exc
+
+    # =================================================
+    # Resume an existing adaptive assessment
+    # =================================================
+
+    if (
+        state.route
+        == LearnerEntryRoute.RESUME_ADAPTIVE
+    ):
+        try:
+            session = (
+                AssessmentSession.objects
+                .select_for_update()
+                .get(
+                    pk=state.active_session_id,
+                    user=locked_user,
+                    mode=(
+                        AssessmentSession
+                        .Mode
+                        .ADAPTIVE
+                    ),
+                    status=(
+                        AssessmentSession
+                        .Status
+                        .ACTIVE
+                    ),
+                )
+            )
+
+        except AssessmentSession.DoesNotExist as exc:
+            raise LearningServiceError(
+                "Active adaptive assessment "
+                "could not be resolved."
+            ) from exc
+
+        question_count = (
+            session.session_questions.count()
+        )
+
+        if question_count == TARGET_QUESTION_COUNT:
+            return AdaptiveAssessmentOpenResult(
+                action=(
+                    AdaptiveAssessmentOpenAction
+                    .RESUMED
+                ),
+                session_id=session.pk,
+                mode=session.mode,
+                status=session.status,
+                question_count=question_count,
+            )
+
+        # A completely empty legacy/recovery session
+        # may safely be assembled now.
+        if question_count == 0:
+            eligible_skill_ids = (
+                resolve_adaptive_eligible_skill_ids(
+                    user=locked_user,
+                )
+            )
+
+            if not eligible_skill_ids:
+                raise LearningServiceError(
+                    "No eligible adaptive Skills "
+                    "are available."
+                )
+
+            assembled = (
+                assemble_adaptive_assessment(
+                    user=locked_user,
+                    session_id=session.pk,
+                    eligible_skill_ids=(
+                        eligible_skill_ids
+                    ),
+                )
+            )
+
+            return AdaptiveAssessmentOpenResult(
+                action=(
+                    AdaptiveAssessmentOpenAction
+                    .RESUMED
+                ),
+                session_id=session.pk,
+                mode=session.mode,
+                status=session.status,
+                question_count=(
+                    assembled.question_count
+                ),
+            )
+
+        # Canonical assembly is all-or-nothing.
+        # Therefore 1..9 questions indicates an
+        # invalid partial state.
+        raise LearningServiceError(
+            "Active adaptive assessment is in an "
+            "invalid partial-assembly state."
+        )
+
+    # =================================================
+    # New adaptive assessment
+    # =================================================
+
+    if state.route != LearnerEntryRoute.ADAPTIVE:
+        raise LearningServiceError(
+            "Learner is not currently eligible to "
+            "start an adaptive assessment. "
+            f"Current route: {state.route.value}."
+        )
+
+    eligible_skill_ids = (
+        resolve_adaptive_eligible_skill_ids(
+            user=locked_user,
+        )
+    )
+
+    if not eligible_skill_ids:
+        raise LearningServiceError(
+            "No eligible adaptive Skills are "
+            "available."
+        )
+
+    started = start_session(
+        user=locked_user,
+        mode=AssessmentSession.Mode.ADAPTIVE,
+    )
+
+    assembled = assemble_adaptive_assessment(
+        user=locked_user,
+        session_id=started.session_id,
+        eligible_skill_ids=(
+            eligible_skill_ids
+        ),
+    )
+
+    return AdaptiveAssessmentOpenResult(
+        action=(
+            AdaptiveAssessmentOpenAction.STARTED
+        ),
+        session_id=started.session_id,
+        mode=started.mode,
+        status=started.status,
+        question_count=(
+            assembled.question_count
         ),
     )
 
@@ -758,6 +1030,14 @@ def assemble_diagnostic_assessment(
             user=user,
             session_id=session.pk,
             question_id=slot.question_id,
+            selection_reason=(
+                SessionQuestion
+                .SelectionReason
+                .DIAGNOSTIC
+            ),
+            was_seen_before=(
+                slot.was_seen_before
+            ),
         )
 
         # Empty locked session means the DB
@@ -1142,6 +1422,12 @@ def mark_session_question_viewed(
         first_viewed_at=(
             session_question.first_viewed_at
         ),
+        selection_reason=(
+            session_question.selection_reason
+        ),
+        was_seen_before=(
+            session_question.was_seen_before
+        ),
     )
 
 @transaction.atomic
@@ -1259,38 +1545,127 @@ def start_session(
     mode,
 ):
     """
-    Start a new assessment session.
+    Start or resume one assessment session.
 
-    Assessment sessions support only:
-    - adaptive
-    - diagnostic
+    Invariant:
+    one User may have at most one ACTIVE
+    AssessmentSession.
 
-    Lesson and guided-practice activity belongs
-    to tracking.StudySession, not to the
-    assessment engine.
+    Semantics:
+    - no active assessment:
+        create requested mode;
+    - same requested mode already active:
+        return existing session;
+    - different mode already active:
+        explicit state conflict.
+
+    Database UniqueConstraint remains the final
+    protection against concurrent/direct writes.
     """
+
+    if user.pk is None:
+        raise LearningServiceError(
+            "User must be saved before an "
+            "assessment session can be started."
+        )
 
     if mode not in AssessmentSession.Mode.values:
         raise LearningServiceError(
             f"Unsupported assessment mode: {mode!r}."
         )
 
+    UserModel = get_user_model()
+
+    try:
+        locked_user = (
+            UserModel.objects
+            .select_for_update()
+            .get(
+                pk=user.pk,
+            )
+        )
+
+    except UserModel.DoesNotExist as exc:
+        raise LearningServiceError(
+            "User does not exist."
+        ) from exc
+
+    # --------------------------------------------------
+    # Check current active state while holding the
+    # User-row lock.
+    #
+    # [:2] also lets us detect legacy/corrupt data
+    # before the DB constraint is applied.
+    # --------------------------------------------------
+
+    active_sessions = list(
+        AssessmentSession.objects
+        .select_for_update()
+        .filter(
+            user=locked_user,
+            status=(
+                AssessmentSession.Status.ACTIVE
+            ),
+        )
+        .order_by(
+            "session_id",
+        )[:2]
+    )
+
+    if len(active_sessions) > 1:
+        raise LearningServiceError(
+            "Learner has multiple active assessment "
+            "sessions."
+        )
+
+    if active_sessions:
+        existing = active_sessions[0]
+
+        if existing.mode != mode:
+            raise LearningServiceError(
+                "Learner already has an active "
+                f"{existing.mode} assessment."
+            )
+
+        # Same mode = idempotent start-or-resume.
+        return AssessmentSessionResult(
+            session_id=existing.pk,
+            mode=existing.mode,
+            status=existing.status,
+        )
+
+    # --------------------------------------------------
+    # No active assessment exists.
+    # --------------------------------------------------
+
     session = AssessmentSession(
-        user=user,
+        user=locked_user,
         mode=mode,
-        status=AssessmentSession.Status.ACTIVE,
+        status=(
+            AssessmentSession.Status.ACTIVE
+        ),
         ended_at=None,
     )
 
     try:
         session.full_clean()
+
     except ValidationError as exc:
         raise LearningServiceError(
-            f"Assessment session validation "
+            "Assessment session validation "
             f"failed: {exc}"
         ) from exc
 
-    session.save()
+    try:
+        session.save()
+
+    except IntegrityError as exc:
+        # Final protection if another writer bypasses
+        # this service and races with this transaction.
+        raise LearningServiceError(
+            "Another active assessment session "
+            "already exists for this learner."
+        ) from exc
 
     return AssessmentSessionResult(
         session_id=session.pk,
@@ -1426,6 +1801,39 @@ def _affected_skill_ids_for_session(
         skill_ids
     )
 
+def _diagnostic_grammar_skill_ids(
+    *,
+    skill_ids,
+):
+    """
+    Restrict DIAGNOSTIC mastery updates to the
+    current Grammar mastery domain.
+
+    Skill identity has already come from the frozen
+    SessionQuestion.skill_snapshot.
+
+    This function does NOT reconstruct historical
+    Question -> Skill mappings from current
+    QuestionSkill rows.
+    """
+
+    if not skill_ids:
+        return []
+
+    return list(
+        Skill.objects
+        .filter(
+            pk__in=skill_ids,
+            topic__category="grammar",
+        )
+        .order_by(
+            "pk",
+        )
+        .values_list(
+            "pk",
+            flat=True,
+        )
+    )
 @transaction.atomic
 def complete_session(
     *,
@@ -1446,11 +1854,36 @@ def complete_session(
         AssessmentSession.Mode.ADAPTIVE,
         AssessmentSession.Mode.DIAGNOSTIC,
     }:
+        # Historical Skill identity is read only
+        # from the frozen SessionQuestion snapshots.
         skill_ids = (
             _affected_skill_ids_for_session(
                 result.session_id
             )
         )
+
+        # =========================================
+        # F1 Diagnostic mastery scope
+        # =========================================
+        #
+        # Diagnostic / Placement contributes only
+        # to Grammar mastery.
+        #
+        # Vocabulary is now an independent learning
+        # + SRS domain and must not create/update
+        # SkillMastery from placement evidence.
+        #
+        # ADAPTIVE behavior intentionally remains
+        # unchanged.
+        if (
+            result.mode
+            == AssessmentSession.Mode.DIAGNOSTIC
+        ):
+            skill_ids = (
+                _diagnostic_grammar_skill_ids(
+                    skill_ids=skill_ids,
+                )
+            )
 
         if skill_ids:
             completed_session = (
