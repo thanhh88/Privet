@@ -190,6 +190,15 @@ RECOMMENDATION_RANKING = {
     },
 }
 
+RECOMMENDATION_EXPLANATION = {
+    "version": "recommendation_explanation_v1",
+    "default_max_reasons": 3,
+}
+
+RECOMMENDATION_OUTCOME = {
+    "version": "recommendation_outcome_v1",
+}
+
 VOCABULARY_SRS = {
     "version": "leitner_v1",
     "intervals": {
