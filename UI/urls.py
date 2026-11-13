@@ -20,6 +20,18 @@ urlpatterns = [
     ),
 
     path(
+        "profile/",
+        views.profile,
+        name="profile",
+    ),
+
+    path(
+        "settings/",
+        views.settings_page,
+        name="settings",
+    ),
+
+    path(
         "lessons/",
         views.lessons,
         name="lessons",
@@ -29,6 +41,43 @@ urlpatterns = [
         "lessons/vocabulary/",
         views.vocabulary,
         name="vocabulary",
+    ),
+
+
+    path(
+        "recommendations/<int:decision_id>/open/",
+        views.recommendation_open,
+        name="recommendation_open",
+    ),
+
+    path(
+        "recommendations/<int:decision_id>/dismiss/",
+        views.recommendation_dismiss,
+        name="recommendation_dismiss",
+    ),
+
+    path(
+        "learning/lessons/<int:lesson_id>/",
+        views.recommended_lesson,
+        name="recommended_lesson",
+    ),
+
+    path(
+        "learning/lessons/<int:lesson_id>/complete/",
+        views.recommended_lesson_complete,
+        name="recommended_lesson_complete",
+    ),
+
+    path(
+        "tests/session/<int:session_id>/",
+        views.assessment_session,
+        name="assessment_session",
+    ),
+
+    path(
+        "lessons/vocabulary/review/",
+        views.vocabulary_review,
+        name="vocabulary_review",
     ),
 
     path(

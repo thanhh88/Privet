@@ -82,7 +82,6 @@ privet-test-history-page
 
     </nav>
 
-
     <div class="test-user">
 
       <span
@@ -91,14 +90,11 @@ privet-test-history-page
       ></span>
 
 
-      <div
-        class="test-avatar"
-        title="{{ display_name }}"
-      >
-        {{ display_name|slice:":1"|upper }}
-      </div>
+      {% include "UI/_user_menu.html" %}
 
     </div>
+
+  
 
   </header>
 

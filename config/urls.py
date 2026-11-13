@@ -32,4 +32,8 @@ urlpatterns = [
         "api/vocabulary/",
         include("vocabulary.urls"),
     ),
+    path(
+        "api/recommendations/",
+        include("recommendation.urls"),
+    ),
 ]

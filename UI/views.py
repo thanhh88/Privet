@@ -5,8 +5,11 @@ import json
 
 from datetime import timedelta
 from pathlib import Path
+from uuid import uuid4
 
 from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.db.models.functions import TruncDate
 from django.http import (
@@ -15,6 +18,8 @@ from django.http import (
     HttpResponse,
 )
 from django.shortcuts import (
+    get_object_or_404,
+    redirect,
     render,
     resolve_url,
 )
@@ -24,6 +29,30 @@ from tracking.models import StudySession
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.http import require_POST
+
+from accounts.forms import (
+    PrivetPasswordChangeForm,
+    ProfileForm,
+    UserSettingsForm,
+)
+from accounts.preferences import get_user_settings
+from accounts.profile_summary import build_profile_summary
+from curriculum.models import Lesson, LessonProgress
+from learning_engine.models import AssessmentSession
+from recommendation.actions import (
+    RecommendationActionError,
+    RecommendationActivityKind,
+    complete_recommendation_activity,
+    open_recommendation_activity,
+)
+from recommendation.logging import generate_logged_recommendations
+from recommendation.models import RecommendationDecision
+from recommendation.outcomes import (
+    RecommendationOutcomeStatus,
+    get_recommendation_outcome_state,
+    record_recommendation_dismissed,
+)
 
 # ============================================================
 # LESSON JSON LOCATION
@@ -155,6 +184,95 @@ def landing(
 
 
 # ============================================================
+# RECOMMENDATION UI HELPERS
+# ============================================================
+
+
+def _dashboard_recommendations(user, *, show_explanations=True):
+    """Generate, persist and serialize one visible dashboard Top-N batch."""
+
+    try:
+        result = generate_logged_recommendations(
+            user=user,
+            request_id=f"dashboard-{uuid4()}",
+            surface="dashboard",
+            limit=3,
+        )
+    except ValueError as exc:
+        if str(exc).startswith("No eligible recommendations were produced"):
+            return []
+        raise
+
+    decisions = {
+        row.rank: row
+        for row in result.batch.decisions.order_by("rank", "decision_id")
+    }
+
+    action_labels = {
+        "resume_assessment": "Tiếp tục bài test",
+        "continue_lesson": "Tiếp tục bài học",
+        "start_lesson": "Bắt đầu bài học",
+        "start_adaptive_assessment": "Bắt đầu bài test",
+        "vocabulary_review": "Ôn ngay",
+    }
+
+    cards = []
+    for explained in result.recommendations:
+        decision = decisions[explained.rank]
+        cards.append(
+            {
+                "decision_id": decision.pk,
+                "rank": decision.rank,
+                "score_percent": int(decision.score * 100),
+                "headline": decision.headline,
+                "candidate_type": decision.candidate_type,
+                "action_label": action_labels.get(
+                    decision.candidate_type,
+                    "Mở hoạt động",
+                ),
+                "reasons": (
+                    [
+                        reason.get("message", "")
+                        for reason in decision.explanation_reasons[:2]
+                        if reason.get("message")
+                    ]
+                    if show_explanations
+                    else []
+                ),
+            }
+        )
+
+    return cards
+
+
+def _owned_recommendation_decision(*, user, decision_id):
+    return get_object_or_404(
+        RecommendationDecision.objects.select_related("batch"),
+        pk=decision_id,
+        batch__user=user,
+    )
+
+
+def _redirect_for_recommendation_activity(result):
+    if result.activity_kind == RecommendationActivityKind.LESSON:
+        url = reverse("UI:recommended_lesson", args=[result.lesson_id])
+        return f"{url}?decision={result.decision_id}"
+
+    if result.activity_kind == RecommendationActivityKind.ASSESSMENT:
+        url = reverse(
+            "UI:assessment_session",
+            args=[result.assessment_session_id],
+        )
+        return f"{url}?decision={result.decision_id}"
+
+    if result.activity_kind == RecommendationActivityKind.VOCABULARY:
+        url = reverse("UI:vocabulary_review")
+        return f"{url}?decision={result.decision_id}"
+
+    raise Http404("Hoạt động recommendation không được hỗ trợ.")
+
+
+# ============================================================
 # DASHBOARD
 # ============================================================
 
@@ -164,6 +282,10 @@ def dashboard(request):
 
     display_name = _get_display_name(
         request.user
+    )
+
+    user_settings = get_user_settings(
+        user=request.user
     )
 
 
@@ -234,31 +356,6 @@ def dashboard(request):
                 ),
             }
         )
-
-
-    # ========================================================
-    # TEMP UI DEMO
-    #
-    # Chỉ để nhìn thử các logo gấu trong streak.
-    # Sau này xóa toàn bộ block này.
-    # ========================================================
-
-    demo_study_days = {
-        1,
-        2,
-        5,
-        7,
-        8,
-        11,
-        14,
-        15,
-        16,
-        18,
-    }
-
-    for item in streak_days:
-        if item["day"] in demo_study_days:
-            item["learned"] = True
 
 
     # ========================================================
@@ -337,6 +434,17 @@ def dashboard(request):
             f"{today.month}/"
             f"{today.year}"
         ),
+
+        "recommendations": _dashboard_recommendations(
+            request.user,
+            show_explanations=(
+                user_settings.recommendation_explanations_enabled
+            ),
+        ),
+
+        "show_streak": (
+            user_settings.show_streak_on_dashboard
+        ),
     }
 
 
@@ -344,6 +452,102 @@ def dashboard(request):
         request,
         "UI/dashboard.html",
         context,
+    )
+
+
+# ============================================================
+# PROFILE + SETTINGS
+# ============================================================
+
+
+@login_required
+def profile(request):
+    user_settings = get_user_settings(user=request.user)
+
+    if request.method == "POST":
+        form = ProfileForm(
+            request.POST,
+            instance=request.user,
+        )
+        if form.is_valid():
+            form.save()
+            messages.success(
+                request,
+                "Thông tin cá nhân đã được cập nhật.",
+            )
+            return redirect("UI:profile")
+    else:
+        form = ProfileForm(instance=request.user)
+
+    summary = build_profile_summary(
+        user=request.user,
+        user_settings=user_settings,
+    )
+
+    return render(
+        request,
+        "UI/profile.html",
+        {
+            "display_name": _get_display_name(request.user),
+            "form": form,
+            "summary": summary,
+        },
+    )
+
+
+@login_required
+def settings_page(request):
+    user_settings = get_user_settings(user=request.user)
+    preference_form = UserSettingsForm(instance=user_settings)
+    password_form = PrivetPasswordChangeForm(user=request.user)
+    active_section = "preferences"
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+
+        if action == "preferences":
+            active_section = "preferences"
+            preference_form = UserSettingsForm(
+                request.POST,
+                instance=user_settings,
+            )
+            if preference_form.is_valid():
+                preference_form.save()
+                messages.success(
+                    request,
+                    "Cài đặt học tập đã được lưu.",
+                )
+                return redirect("UI:settings")
+
+        elif action == "password":
+            active_section = "password"
+            password_form = PrivetPasswordChangeForm(
+                user=request.user,
+                data=request.POST,
+            )
+            if password_form.is_valid():
+                updated_user = password_form.save()
+                update_session_auth_hash(request, updated_user)
+                messages.success(
+                    request,
+                    "Mật khẩu đã được thay đổi.",
+                )
+                return redirect("UI:settings")
+        else:
+            messages.error(
+                request,
+                "Yêu cầu cài đặt không hợp lệ.",
+            )
+
+    return render(
+        request,
+        "UI/settings.html",
+        {
+            "display_name": _get_display_name(request.user),
+            "preference_form": preference_form,
+            "password_form": password_form,
+            "active_section": active_section,
+        },
     )
 
 
@@ -1567,5 +1771,204 @@ def vocabulary(request):
         {
             "display_name": _get_display_name(request.user),
             "selected_level": level,
+        },
+    )
+
+
+# ============================================================
+# R9 RECOMMENDATION ACTIONS + REAL ACTIVITY UI
+# ============================================================
+
+
+@login_required
+@require_POST
+def recommendation_open(request, decision_id):
+    decision = _owned_recommendation_decision(
+        user=request.user,
+        decision_id=decision_id,
+    )
+    try:
+        result = open_recommendation_activity(
+            user=request.user,
+            decision=decision,
+            request_id=f"ui-open-{uuid4()}",
+        )
+    except RecommendationActionError as exc:
+        raise Http404(str(exc)) from exc
+
+    return redirect(_redirect_for_recommendation_activity(result))
+
+
+@login_required
+@require_POST
+def recommendation_dismiss(request, decision_id):
+    decision = _owned_recommendation_decision(
+        user=request.user,
+        decision_id=decision_id,
+    )
+    try:
+        record_recommendation_dismissed(
+            user=request.user,
+            decision=decision,
+            request_id=f"ui-dismiss-{uuid4()}",
+        )
+    except ValueError:
+        # Stale double-clicks should not break the dashboard navigation.
+        pass
+    return redirect("UI:dashboard")
+
+
+@login_required
+def recommended_lesson(request, lesson_id):
+    decision_id = request.GET.get("decision")
+    try:
+        decision_id = int(decision_id)
+    except (TypeError, ValueError):
+        raise Http404("Thiếu recommendation decision.")
+
+    decision = _owned_recommendation_decision(
+        user=request.user,
+        decision_id=decision_id,
+    )
+    if decision.candidate_snapshot.get("lesson_id") != lesson_id:
+        raise Http404("Recommendation không khớp bài học.")
+
+    state = get_recommendation_outcome_state(decision=decision)
+    if state.status not in {
+        RecommendationOutcomeStatus.STARTED,
+        RecommendationOutcomeStatus.COMPLETED,
+    }:
+        raise Http404("Bài học recommendation chưa được mở.")
+
+    lesson = get_object_or_404(Lesson, pk=lesson_id, is_active=True)
+    progress = get_object_or_404(
+        LessonProgress,
+        user=request.user,
+        lesson=lesson,
+    )
+    content = lesson.content if isinstance(lesson.content, dict) else {}
+    skill_levels = list(
+        lesson.lesson_skills.values_list("skill__cefr_level", flat=True)
+    )
+
+    return render(
+        request,
+        "UI/recommended_lesson.html",
+        {
+            "display_name": _get_display_name(request.user),
+            "decision": decision,
+            "lesson": lesson,
+            "content": content,
+            "cefr_level": skill_levels[0] if skill_levels else "",
+            "progress": progress,
+            "progress_percent": int(progress.completion_ratio * 100),
+            "completed": state.status == RecommendationOutcomeStatus.COMPLETED,
+        },
+    )
+
+
+@login_required
+@require_POST
+def recommended_lesson_complete(request, lesson_id):
+    decision_id = request.POST.get("decision")
+    try:
+        decision_id = int(decision_id)
+    except (TypeError, ValueError):
+        raise Http404("Thiếu recommendation decision.")
+
+    decision = _owned_recommendation_decision(
+        user=request.user,
+        decision_id=decision_id,
+    )
+    if decision.candidate_snapshot.get("lesson_id") != lesson_id:
+        raise Http404("Recommendation không khớp bài học.")
+
+    try:
+        complete_recommendation_activity(
+            user=request.user,
+            decision=decision,
+            request_id=f"ui-complete-{uuid4()}",
+        )
+    except RecommendationActionError as exc:
+        raise Http404(str(exc)) from exc
+
+    url = reverse("UI:recommended_lesson", args=[lesson_id])
+    return redirect(f"{url}?decision={decision.pk}")
+
+
+@login_required
+def assessment_session(request, session_id):
+    decision_id = request.GET.get("decision")
+    try:
+        decision_id = int(decision_id)
+    except (TypeError, ValueError):
+        raise Http404("Thiếu recommendation decision.")
+
+    decision = _owned_recommendation_decision(
+        user=request.user,
+        decision_id=decision_id,
+    )
+    state = get_recommendation_outcome_state(decision=decision)
+    started = decision.outcome_events.filter(
+        event_type="activity_started"
+    ).first()
+    if (
+        started is None
+        or started.activity_snapshot.get("assessment_session_id") != session_id
+        or state.status not in {
+            RecommendationOutcomeStatus.STARTED,
+            RecommendationOutcomeStatus.COMPLETED,
+            RecommendationOutcomeStatus.ABANDONED,
+        }
+    ):
+        raise Http404("Assessment recommendation không hợp lệ.")
+
+    session = get_object_or_404(
+        AssessmentSession,
+        pk=session_id,
+        user=request.user,
+    )
+
+    return render(
+        request,
+        "UI/assessment_session.html",
+        {
+            "display_name": _get_display_name(request.user),
+            "decision": decision,
+            "session": session,
+            "recommendation_state": state.status.value,
+        },
+    )
+
+
+@login_required
+def vocabulary_review(request):
+    decision_id = request.GET.get("decision")
+    try:
+        decision_id = int(decision_id)
+    except (TypeError, ValueError):
+        raise Http404("Thiếu recommendation decision.")
+
+    decision = _owned_recommendation_decision(
+        user=request.user,
+        decision_id=decision_id,
+    )
+    if decision.candidate_type != "vocabulary_review":
+        raise Http404("Recommendation không phải phiên ôn từ vựng.")
+
+    state = get_recommendation_outcome_state(decision=decision)
+    if state.status not in {
+        RecommendationOutcomeStatus.STARTED,
+        RecommendationOutcomeStatus.COMPLETED,
+    }:
+        raise Http404("Phiên ôn từ vựng chưa được mở.")
+
+    return render(
+        request,
+        "UI/vocabulary_review.html",
+        {
+            "display_name": _get_display_name(request.user),
+            "decision": decision,
+            "completed": state.status == RecommendationOutcomeStatus.COMPLETED,
         },
     )

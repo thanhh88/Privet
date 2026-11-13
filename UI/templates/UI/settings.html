@@ -1,0 +1,108 @@
+{% extends "UI/base.html" %}
+{% load static %}
+
+{% block title %}Cài đặt | Privet{% endblock %}
+{% block page_styles %}
+  <link rel="stylesheet" href="{% static 'UI/css/dashboard.css' %}?v=20261113-2">
+  <link rel="stylesheet" href="{% static 'UI/css/account.css' %}?v=20261113-2">
+{% endblock %}
+
+{% block content %}
+<div class="account-page">
+  <header class="dashboard-header account-app-header">
+    <a href="{% url 'UI:dashboard' %}" class="dashboard-brand">
+      <img
+        src="{% static 'UI/images/privet-bear-logo.png' %}"
+        class="dashboard-brand-logo"
+        alt=""
+      >
+      <span>Privet</span>
+    </a>
+
+    <nav class="dashboard-nav" aria-label="Điều hướng chính">
+      <a href="{% url 'UI:dashboard' %}" class="dashboard-nav-link">Trang chủ</a>
+      <a href="{% url 'UI:lessons' %}" class="dashboard-nav-link">Bài học</a>
+      <a href="{% url 'UI:test_hub' %}" class="dashboard-nav-link">Bài test</a>
+      <a href="{% url 'UI:progress' %}" class="dashboard-nav-link">Tiến độ</a>
+    </nav>
+
+    <div class="dashboard-user">
+      <span class="dashboard-notification-dot" aria-hidden="true"></span>
+      {% include "UI/_user_menu.html" %}
+    </div>
+  </header>
+
+  <main class="account-main" id="main-content">
+    {% for message in messages %}<div class="account-message">{{ message }}</div>{% endfor %}
+
+    <section class="account-page-heading">
+      <h1>Cài đặt</h1>
+      <p>Điều chỉnh mục tiêu và cách Privet hiển thị thông tin cho bạn.</p>
+    </section>
+
+    <section class="account-settings-grid">
+      <div class="account-settings-stack">
+        <article class="account-card">
+          <h2>Cài đặt học tập</h2>
+          <form class="account-form" method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="preferences">
+
+            <div class="account-field">
+              <label for="{{ preference_form.daily_goal_minutes.id_for_label }}">{{ preference_form.daily_goal_minutes.label }}</label>
+              {{ preference_form.daily_goal_minutes }}
+              <small class="account-help">Được dùng để tính tiến độ mục tiêu hôm nay trên Trang cá nhân.</small>
+              {% if preference_form.daily_goal_minutes.errors %}<ul class="account-errors">{{ preference_form.daily_goal_minutes.errors }}</ul>{% endif %}
+            </div>
+
+            <label class="account-check">
+              {{ preference_form.recommendation_explanations_enabled }}
+              <span><strong>{{ preference_form.recommendation_explanations_enabled.label }}</strong><small>Ẩn hoặc hiện lý do bên dưới đề xuất học tập. Thứ tự đề xuất không thay đổi.</small></span>
+            </label>
+
+            <label class="account-check">
+              {{ preference_form.show_streak_on_dashboard }}
+              <span><strong>{{ preference_form.show_streak_on_dashboard.label }}</strong><small>Chỉ thay đổi hiển thị trên Trang chủ; dữ liệu học vẫn được ghi nhận bình thường.</small></span>
+            </label>
+
+            <div><button class="account-button" type="submit">Lưu cài đặt</button></div>
+          </form>
+        </article>
+
+        <article class="account-card account-password-card">
+          <h2>Bảo mật</h2>
+          <details class="account-password-disclosure"{% if active_section == 'password' %} open{% endif %}>
+            <summary class="account-password-trigger">Đổi mật khẩu</summary>
+            <div class="account-password-body">
+              <form class="account-form" method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="password">
+                {% for field in password_form %}
+                  <div class="account-field">
+                    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.help_text %}<small class="account-help">{{ field.help_text|safe }}</small>{% endif %}
+                    {% if field.errors %}<ul class="account-errors">{{ field.errors }}</ul>{% endif %}
+                  </div>
+                {% endfor %}
+                <div><button class="account-button" type="submit">Xác nhận đổi mật khẩu</button></div>
+              </form>
+            </div>
+          </details>
+        </article>
+      </div>
+
+      <aside>
+        <article class="account-card">
+          <h2>Tài khoản</h2>
+          <dl class="account-route">
+            <div><dt>Email</dt><dd>{{ request.user.email }}</dd></div>
+            <div><dt>Ngôn ngữ giao diện</dt><dd>Tiếng Việt</dd></div>
+            <div><dt>Ngày tham gia</dt><dd>{{ request.user.date_joined|date:"d/m/Y" }}</dd></div>
+          </dl>
+        </article>
+      </aside>
+    </section>
+  </main>
+</div>
+{% endblock %}

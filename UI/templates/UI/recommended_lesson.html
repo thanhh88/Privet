@@ -1,0 +1,78 @@
+{% extends "UI/base.html" %}
+{% load static %}
+
+{% block title %}{{ lesson.title }} | Privet{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="{% static 'UI/css/recommendation.css' %}?v=20261113-1">{% endblock %}
+
+{% block content %}
+<div class="r9-page">
+  <header class="r9-header">
+    <a class="r9-brand" href="{% url 'UI:dashboard' %}">
+      <img src="{% static 'UI/images/privet-bear-logo.png' %}" alt="">
+      <span>Privet</span>
+    </a>
+    {% include "UI/_user_menu.html" %}
+    <a class="r9-back" href="{% url 'UI:dashboard' %}">← Trang chủ</a>
+  </header>
+
+  <main class="r9-main">
+    <section class="r9-card">
+      <p class="r9-eyebrow">BÀI HỌC ĐƯỢC ĐỀ XUẤT{% if cefr_level %} · {{ cefr_level }}{% endif %}</p>
+      <h1>{{ lesson.title }}</h1>
+      {% if content.objective_vi %}<p class="r9-muted">{{ content.objective_vi }}</p>{% endif %}
+      <p class="r9-progress">Tiến độ: {{ progress_percent }}%</p>
+      {% if completed %}<div class="r9-success">Bạn đã hoàn thành bài học này.</div>{% endif %}
+    </section>
+
+    {% if content.theory %}
+    <section class="r9-card">
+      <p class="r9-eyebrow">LÝ THUYẾT</p>
+      <ul class="r9-list">
+        {% for item in content.theory %}<li>{{ item }}</li>{% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+
+    {% if content.examples %}
+    <section class="r9-card">
+      <p class="r9-eyebrow">VÍ DỤ</p>
+      {% for item in content.examples %}
+      <div class="r9-example{% if not forloop.first %}" style="margin-top:.7rem{% endif %}">
+        <strong lang="ru">{{ item.ru }}</strong>
+        <span>{{ item.vi }}</span>
+      </div>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    {% if content.practice %}
+    <section class="r9-card">
+      <p class="r9-eyebrow">LUYỆN TẬP</p>
+      {% for item in content.practice %}
+        <div class="r9-example{% if not forloop.first %}" style="margin-top:.7rem{% endif %}">
+          <strong>{{ item.prompt }}</strong>
+          {% if item.options %}
+            <ul class="r9-list">
+              {% for option in item.options %}<li>{{ option.key }}. {{ option.text }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+      {% endfor %}
+      <p class="r9-muted">Đáp án không được hiển thị trong trang học.</p>
+    </section>
+    {% endif %}
+
+    <section class="r9-card">
+      {% if completed %}
+        <a class="r9-primary" href="{% url 'UI:dashboard' %}">Về trang chủ</a>
+      {% else %}
+        <form method="post" action="{% url 'UI:recommended_lesson_complete' lesson.pk %}">
+          {% csrf_token %}
+          <input type="hidden" name="decision" value="{{ decision.pk }}">
+          <button class="r9-primary" type="submit">Hoàn thành bài học</button>
+        </form>
+      {% endif %}
+    </section>
+  </main>
+</div>
+{% endblock %}

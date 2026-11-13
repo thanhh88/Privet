@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import InviteCode, User
+from .models import InviteCode, User, UserSettings
 
 
 @admin.register(User)
@@ -47,6 +47,7 @@ class CustomUserAdmin(UserAdmin):
                 "fields": (
                     "first_name",
                     "last_name",
+                    "prior_russian_experience",
                 )
             },
         ),
@@ -117,3 +118,15 @@ class InviteCodeAdmin(admin.ModelAdmin):
     )
 
     ordering = ("-created_at",)
+
+@admin.register(UserSettings)
+class UserSettingsAdmin(admin.ModelAdmin):
+    list_display = (
+        "user",
+        "daily_goal_minutes",
+        "recommendation_explanations_enabled",
+        "show_streak_on_dashboard",
+        "updated_at",
+    )
+    search_fields = ("user__email", "user__first_name", "user__last_name")
+    readonly_fields = ("updated_at",)

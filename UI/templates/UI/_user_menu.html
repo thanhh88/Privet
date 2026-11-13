@@ -1,0 +1,22 @@
+<details class="privet-user-menu">
+  <summary aria-label="Mở menu người dùng" title="{{ display_name }}">
+    <span class="privet-user-menu-avatar" aria-hidden="true">
+      {{ display_name|slice:":1"|upper }}
+    </span>
+  </summary>
+
+  <div class="privet-user-menu-panel">
+    <div class="privet-user-menu-identity">
+      <strong>{{ display_name }}</strong>
+      <small>{{ request.user.email }}</small>
+    </div>
+
+    <a href="{% url 'UI:profile' %}">Trang cá nhân</a>
+    <a href="{% url 'UI:settings' %}">Cài đặt</a>
+
+    <form method="post" action="{% url 'accounts:logout' %}">
+      {% csrf_token %}
+      <button type="submit">Đăng xuất</button>
+    </form>
+  </div>
+</details>

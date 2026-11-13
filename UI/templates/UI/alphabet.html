@@ -76,10 +76,10 @@ privet-lessons-page privet-alphabet-page
         class="app-notification-dot"
         aria-hidden="true"
       ></span>
-      <div class="app-avatar" title="{{ display_name }}">
-        {{ display_name|slice:":1"|upper }}
-      </div>
+      {% include "UI/_user_menu.html" %}
     </div>
+
+  
 
   </header>
 

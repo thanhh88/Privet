@@ -1162,3 +1162,134 @@
   }
 
 }
+/* =========================================
+   R9 PERSONALIZED RECOMMENDATIONS
+   ========================================= */
+
+.recommendation-card {
+  padding: 1.35rem 1.5rem;
+  overflow: hidden;
+}
+
+.recommendation-heading {
+  margin: 0.3rem 0 0;
+  color: var(--privet-ink);
+  font-size: 1.25rem;
+  font-weight: 1000;
+}
+
+.recommendation-badge {
+  align-self: flex-start;
+  padding: 0.42rem 0.7rem;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: var(--privet-blue-bright);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.recommendation-list {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.8rem;
+}
+
+.recommendation-item {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.75rem;
+  border: 1px solid rgba(70, 119, 177, 0.13);
+  border-radius: 1rem;
+  background: #fbfdff;
+}
+
+.recommendation-rank {
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--privet-blue-bright);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 1000;
+}
+
+.recommendation-copy {
+  min-width: 0;
+}
+
+.recommendation-title-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7rem;
+  align-items: baseline;
+}
+
+.recommendation-title-row h3 {
+  margin: 0;
+  color: var(--privet-ink);
+  font-size: 0.92rem;
+  font-weight: 1000;
+}
+
+.recommendation-title-row span {
+  flex: 0 0 auto;
+  color: var(--privet-blue-bright);
+  font-size: 0.75rem;
+  font-weight: 1000;
+}
+
+.recommendation-copy p {
+  margin: 0.28rem 0 0;
+  color: #6a7b90;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.recommendation-actions {
+  display: flex;
+  gap: 0.55rem;
+  margin-top: 0.55rem;
+}
+
+.recommendation-actions form {
+  margin: 0;
+}
+
+.recommendation-open {
+  padding: 0.55rem 0.85rem;
+  font-size: 0.76rem;
+}
+
+.recommendation-dismiss {
+  min-height: 2.15rem;
+  padding: 0.48rem 0.72rem;
+  border: 0;
+  background: transparent;
+  color: #7f8da1;
+  font-size: 0.74rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.recommendation-dismiss:hover {
+  color: #e95069;
+}
+
+.recommendation-empty {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 1rem;
+  background: #f7faff;
+  color: #718197;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.dashboard-top-grid.is-single {
+  grid-template-columns: minmax(0, 1fr);
+}

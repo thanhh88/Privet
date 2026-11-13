@@ -166,3 +166,49 @@ class InviteCode(models.Model):
 
     def __str__(self):
         return self.code
+
+class UserSettings(models.Model):
+    """
+    Persisted learner-facing preferences.
+
+    These settings may change presentation and personal study goals, but they
+    must never mutate mastery, prerequisite thresholds, or recommendation
+    algorithm weights.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="preferences",
+    )
+
+    daily_goal_minutes = models.PositiveSmallIntegerField(
+        default=20,
+    )
+
+    recommendation_explanations_enabled = models.BooleanField(
+        default=True,
+    )
+
+    show_streak_on_dashboard = models.BooleanField(
+        default=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        db_table = "user_settings"
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(
+                    daily_goal_minutes__gte=5,
+                    daily_goal_minutes__lte=180,
+                ),
+                name="ck_user_settings_daily_goal",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Settings for {self.user}"

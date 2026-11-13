@@ -1,0 +1,44 @@
+{% extends "UI/base.html" %}
+{% load static %}
+
+{% block title %}Ôn từ vựng | Privet{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="{% static 'UI/css/recommendation.css' %}?v=20261113-1">{% endblock %}
+
+{% block content %}
+<div class="r9-page">
+  <header class="r9-header">
+    <a class="r9-brand" href="{% url 'UI:dashboard' %}">
+      <img src="{% static 'UI/images/privet-bear-logo.png' %}" alt=""><span>Privet</span>
+    </a>
+    {% include "UI/_user_menu.html" %}
+    <a class="r9-back" href="{% url 'UI:dashboard' %}">← Trang chủ</a>
+  </header>
+
+  <main class="r9-main">
+    <section
+      class="r9-card"
+      id="r9-vocabulary-review"
+      data-completed="{% if completed %}1{% else %}0{% endif %}"
+      data-due-url="{% url 'vocab:due' %}"
+      data-review-url="{% url 'vocab:review' %}"
+      data-complete-url="{% url 'recommendation:decision-complete' decision.pk %}"
+      data-dashboard-url="{% url 'UI:dashboard' %}"
+    >
+      <p class="r9-eyebrow">ÔN TỪ VỰNG · LEITNER SRS</p>
+      <h1>Ôn những từ đang đến hạn</h1>
+      <p class="r9-progress" id="r9-vocab-progress"></p>
+      <p class="r9-status" id="r9-vocab-status" role="status"></p>
+      <div id="r9-vocab-card"></div>
+      <div class="r9-actions" id="r9-vocab-actions" hidden>
+        <button class="r9-danger" type="button" id="r9-forgot">Chưa nhớ</button>
+        <button class="r9-primary" type="button" id="r9-remembered">Đã nhớ</button>
+      </div>
+      <div class="r9-actions" id="r9-vocab-finish" hidden>
+        <button class="r9-primary" type="button" id="r9-finish-button">Kết thúc phiên ôn</button>
+      </div>
+    </section>
+    <input type="hidden" id="r9-csrf" value="{{ csrf_token }}">
+  </main>
+</div>
+<script src="{% static 'UI/js/vocabulary-review.js' %}" defer></script>
+{% endblock %}

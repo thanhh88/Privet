@@ -1,0 +1,48 @@
+{% extends "UI/base.html" %}
+{% load static %}
+
+{% block title %}Bài đánh giá | Privet{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="{% static 'UI/css/recommendation.css' %}?v=20261113-1">{% endblock %}
+
+{% block content %}
+<div class="r9-page">
+  <header class="r9-header">
+    <a class="r9-brand" href="{% url 'UI:dashboard' %}">
+      <img src="{% static 'UI/images/privet-bear-logo.png' %}" alt=""><span>Privet</span>
+    </a>
+    {% include "UI/_user_menu.html" %}
+    <a class="r9-back" href="{% url 'UI:dashboard' %}">← Trang chủ</a>
+  </header>
+
+  <main class="r9-main">
+    <section
+      class="r9-card"
+      id="r9-assessment"
+      data-session-id="{{ session.pk }}"
+      data-decision-id="{{ decision.pk }}"
+      data-state="{{ recommendation_state }}"
+      data-detail-url="{% url 'learning_engine:assessment-detail' session.pk %}"
+      data-viewed-template="{% url 'learning_engine:assessment-question-viewed' session.pk 0 %}"
+      data-answer-template="{% url 'learning_engine:assessment-question-answer' session.pk 0 %}"
+      data-result-url="{% url 'learning_engine:assessment-result' session.pk %}"
+      data-complete-url="{% url 'recommendation:decision-complete' decision.pk %}"
+      data-abandon-url="{% url 'recommendation:decision-abandon' decision.pk %}"
+      data-dashboard-url="{% url 'UI:dashboard' %}"
+    >
+      <p class="r9-eyebrow">BÀI ĐÁNH GIÁ CÁ NHÂN HÓA</p>
+      <h1 id="r9-assessment-title">Đang tải bài đánh giá…</h1>
+      <p class="r9-status" id="r9-assessment-status" role="status"></p>
+      <div id="r9-assessment-body"></div>
+      <div class="r9-question-nav" id="r9-question-nav"></div>
+      <div class="r9-actions" id="r9-assessment-actions" hidden>
+        <button class="r9-secondary" id="r9-prev" type="button">← Câu trước</button>
+        <button class="r9-secondary" id="r9-next" type="button">Câu tiếp →</button>
+        <button class="r9-primary" id="r9-complete" type="button">Nộp bài</button>
+        <button class="r9-danger" id="r9-abandon" type="button">Thoát bài test</button>
+      </div>
+    </section>
+    <input type="hidden" id="r9-csrf" value="{{ csrf_token }}">
+  </main>
+</div>
+<script src="{% static 'UI/js/assessment-session.js' %}" defer></script>
+{% endblock %}

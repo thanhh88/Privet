@@ -100,14 +100,11 @@ privet-lessons-page
       ></span>
 
 
-      <div
-        class="app-avatar"
-        title="{{ display_name }}"
-      >
-        {{ display_name|slice:":1"|upper }}
-      </div>
+      {% include "UI/_user_menu.html" %}
 
     </div>
+
+  
 
   </header>
 

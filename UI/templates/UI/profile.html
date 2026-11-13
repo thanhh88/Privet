@@ -1,0 +1,89 @@
+{% extends "UI/base.html" %}
+{% load static %}
+
+{% block title %}Trang cá nhân | Privet{% endblock %}
+{% block page_styles %}
+  <link rel="stylesheet" href="{% static 'UI/css/dashboard.css' %}?v=20261113-2">
+  <link rel="stylesheet" href="{% static 'UI/css/account.css' %}?v=20261113-2">
+{% endblock %}
+
+{% block content %}
+<div class="account-page">
+  <header class="dashboard-header account-app-header">
+    <a href="{% url 'UI:dashboard' %}" class="dashboard-brand">
+      <img
+        src="{% static 'UI/images/privet-bear-logo.png' %}"
+        class="dashboard-brand-logo"
+        alt=""
+      >
+      <span>Privet</span>
+    </a>
+
+    <nav class="dashboard-nav" aria-label="Điều hướng chính">
+      <a href="{% url 'UI:dashboard' %}" class="dashboard-nav-link">Trang chủ</a>
+      <a href="{% url 'UI:lessons' %}" class="dashboard-nav-link">Bài học</a>
+      <a href="{% url 'UI:test_hub' %}" class="dashboard-nav-link">Bài test</a>
+      <a href="{% url 'UI:progress' %}" class="dashboard-nav-link">Tiến độ</a>
+    </nav>
+
+    <div class="dashboard-user">
+      <span class="dashboard-notification-dot" aria-hidden="true"></span>
+      {% include "UI/_user_menu.html" %}
+    </div>
+  </header>
+
+  <main class="account-main" id="main-content">
+    {% for message in messages %}<div class="account-message">{{ message }}</div>{% endfor %}
+
+    <section class="account-hero account-profile-hero">
+      <div class="account-avatar-large account-profile-avatar">{{ display_name|slice:":1"|upper }}</div>
+      <div class="account-profile-identity">
+        <h1>{{ request.user.first_name }} {{ request.user.last_name }}</h1>
+        <p>{{ request.user.email }}</p>
+        <span>Tham gia {{ request.user.date_joined|date:"d/m/Y" }}</span>
+      </div>
+    </section>
+
+    <section class="account-profile-content">
+      <article class="account-card">
+        <h2>Tiến độ học tập</h2>
+        <div class="account-stats">
+          <div class="account-stat"><strong>{{ summary.completed_lessons }}/{{ summary.total_lessons }}</strong><span>Bài học hoàn thành</span></div>
+          <div class="account-stat"><strong>{{ summary.completed_assessments }}</strong><span>Bài đánh giá hoàn thành</span></div>
+          <div class="account-stat"><strong>{{ summary.mastered_skills }}/{{ summary.total_skills }}</strong><span>Kỹ năng đã đạt</span></div>
+          <div class="account-stat"><strong>{{ summary.vocabulary_learned }}</strong><span>Từ đang học bằng SRS</span></div>
+          <div class="account-stat"><strong>{{ summary.streak_count }}</strong><span>Ngày streak hiện tại</span></div>
+          <div class="account-stat"><strong>{{ summary.total_study_minutes }}</strong><span>Tổng phút học đã ghi nhận</span></div>
+        </div>
+      </article>
+
+      <div class="account-profile-bottom-grid">
+        <article class="account-card">
+          <h2>Mục tiêu hôm nay</h2>
+          <strong>{{ summary.today_study_minutes }} / {{ summary.daily_goal_minutes }} phút</strong>
+          <div class="account-progress-track" aria-label="Tiến độ mục tiêu hôm nay">
+            <div class="account-progress-fill" style="width: {{ summary.daily_goal_percent }}%"></div>
+          </div>
+          <p class="account-help">{{ summary.daily_goal_percent }}% mục tiêu · {{ summary.vocabulary_due }} từ đang đến hạn ôn.</p>
+        </article>
+
+        <article class="account-card">
+          <h2>Thông tin cá nhân</h2>
+          <form class="account-form" method="post">
+            {% csrf_token %}
+            {% if form.non_field_errors %}<ul class="account-errors">{{ form.non_field_errors }}</ul>{% endif %}
+            {% for field in form %}
+              <div class="account-field">
+                <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field }}
+                {% if field.errors %}<ul class="account-errors">{{ field.errors }}</ul>{% endif %}
+              </div>
+            {% endfor %}
+            <div><button class="account-button" type="submit">Lưu thông tin</button></div>
+          </form>
+        </article>
+      </div>
+    </section>
+  </main>
+</div>
+{% endblock %}

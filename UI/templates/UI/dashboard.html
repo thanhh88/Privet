@@ -7,7 +7,7 @@
 {% block page_styles %}
   <link
     rel="stylesheet"
-    href="{% static 'UI/css/dashboard.css' %}"
+    href="{% static 'UI/css/dashboard.css' %}?v=20261113-1"
   >
 {% endblock %}
 
@@ -76,7 +76,6 @@
 
     </nav>
 
-
     <div class="dashboard-user">
 
       <span
@@ -84,14 +83,11 @@
         aria-hidden="true"
       ></span>
 
-      <div
-        class="dashboard-avatar"
-        title="{{ display_name }}"
-      >
-        {{ display_name|slice:":1"|upper }}
-      </div>
+      {% include "UI/_user_menu.html" %}
 
     </div>
+
+  
 
   </header>
 
@@ -112,7 +108,7 @@
          GREETING + STREAK
          =================================== -->
 
-    <section class="dashboard-top-grid">
+    <section class="dashboard-top-grid{% if not show_streak %} is-single{% endif %}">
 
 
       <!-- WELCOME -->
@@ -139,6 +135,7 @@
 
       <!-- STREAK -->
 
+      {% if show_streak %}
       <article
         class="dashboard-card streak-card"
         aria-labelledby="streak-title"
@@ -241,6 +238,7 @@
         </div>
 
       </article>
+      {% endif %}
 
     </section>
 
@@ -254,67 +252,88 @@
 
 
       <!-- =================================
-           RECENT LESSON
+           PERSONALIZED RECOMMENDATIONS
            ================================= -->
 
       <article
-        class="dashboard-card lesson-card"
+        class="dashboard-card recommendation-card"
+        aria-labelledby="recommendation-title"
       >
 
         <div class="card-heading">
-
-          <p class="dashboard-card-label">
-            BÀI HỌC GẦN ĐÂY
-          </p>
-
-          <span class="lesson-type">
-            Ngữ pháp
-          </span>
-
-        </div>
-
-
-        <div class="lesson-main">
-
           <div>
-
-            <h2 class="lesson-title">
-              Глаголы движения
-            </h2>
-
-            <p class="lesson-subtitle">
-              идти / ходить
+            <p class="dashboard-card-label">
+              ĐỀ XUẤT CHO BẠN
             </p>
-
+            <h2
+              class="recommendation-heading"
+              id="recommendation-title"
+            >
+              Học gì tiếp theo?
+            </h2>
           </div>
 
+          <span class="recommendation-badge">
+            Cá nhân hóa
+          </span>
+        </div>
 
-          <div class="lesson-percentage">
-            65%
+        {% if recommendations %}
+          <div class="recommendation-list">
+            {% for item in recommendations %}
+              <section class="recommendation-item">
+                <div class="recommendation-rank">
+                  {{ item.rank }}
+                </div>
+
+                <div class="recommendation-copy">
+                  <div class="recommendation-title-row">
+                    <h3>{{ item.headline }}</h3>
+                    <span>{{ item.score_percent }}%</span>
+                  </div>
+
+                  {% if item.reasons %}
+                    <p>{{ item.reasons.0 }}</p>
+                  {% endif %}
+
+                  <div class="recommendation-actions">
+                    <form
+                      method="post"
+                      action="{% url 'UI:recommendation_open' item.decision_id %}"
+                    >
+                      {% csrf_token %}
+                      <button
+                        type="submit"
+                        class="dashboard-primary-button recommendation-open"
+                      >
+                        {{ item.action_label }}
+                      </button>
+                    </form>
+
+                    <form
+                      method="post"
+                      action="{% url 'UI:recommendation_dismiss' item.decision_id %}"
+                    >
+                      {% csrf_token %}
+                      <button
+                        type="submit"
+                        class="recommendation-dismiss"
+                      >
+                        Bỏ qua
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              </section>
+            {% endfor %}
           </div>
-
-        </div>
-
-
-        <div class="lesson-progress">
-
-          <div
-            class="lesson-progress-bar"
-            style="width: 65%;"
-          ></div>
-
-        </div>
-
-
-        <a
-          href="#"
-          class="dashboard-primary-button"
-        >
-          Tiếp tục bài học
-        </a>
+        {% else %}
+          <div class="recommendation-empty">
+            Hiện chưa có hoạt động mới cần đề xuất.
+          </div>
+        {% endif %}
 
       </article>
-
 
 
       <!-- =================================

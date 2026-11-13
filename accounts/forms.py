@@ -1,12 +1,12 @@
 from django import forms
 from django.contrib.auth import get_user_model
-from django.contrib.auth.forms import AuthenticationForm
+from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from .models import InviteCode
+from .models import InviteCode, UserSettings
 
 
 User = get_user_model()
@@ -148,3 +148,77 @@ class RegisterForm(forms.Form):
             )
 
         return user
+
+class PrivetPasswordChangeForm(PasswordChangeForm):
+    old_password = forms.CharField(
+        label="Mật khẩu hiện tại",
+        strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "current-password"}),
+    )
+    new_password1 = forms.CharField(
+        label="Mật khẩu mới",
+        strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+    )
+    new_password2 = forms.CharField(
+        label="Nhập lại mật khẩu mới",
+        strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+    )
+
+
+class ProfileForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = (
+            "first_name",
+            "last_name",
+            "email",
+        )
+        labels = {
+            "first_name": "Họ",
+            "last_name": "Tên",
+            "email": "Email",
+        }
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].strip().lower()
+
+        queryset = User.objects.filter(email__iexact=email)
+        if self.instance.pk is not None:
+            queryset = queryset.exclude(pk=self.instance.pk)
+
+        if queryset.exists():
+            raise forms.ValidationError("Email này đã được sử dụng.")
+
+        return email
+
+
+class UserSettingsForm(forms.ModelForm):
+    class Meta:
+        model = UserSettings
+        fields = (
+            "daily_goal_minutes",
+            "recommendation_explanations_enabled",
+            "show_streak_on_dashboard",
+        )
+        labels = {
+            "daily_goal_minutes": "Mục tiêu học mỗi ngày (phút)",
+            "recommendation_explanations_enabled": (
+                "Hiển thị lý do của đề xuất học tập"
+            ),
+            "show_streak_on_dashboard": "Hiển thị streak trên trang chủ",
+        }
+        widgets = {
+            "daily_goal_minutes": forms.NumberInput(
+                attrs={"min": 5, "max": 180, "step": 5}
+            ),
+        }
+
+    def clean_daily_goal_minutes(self):
+        value = self.cleaned_data["daily_goal_minutes"]
+        if value < 5 or value > 180:
+            raise forms.ValidationError(
+                "Mục tiêu mỗi ngày phải nằm trong khoảng 5–180 phút."
+            )
+        return value

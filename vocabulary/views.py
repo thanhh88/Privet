@@ -296,6 +296,7 @@ def receipt(log):
     """
 
     return {
+        "review_log_id": log.pk,
         "request_id": str(log.request_id),
         "source_id": log.item.source_id,
 

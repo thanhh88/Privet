@@ -1,0 +1,117 @@
+/* Privet account dropdown. Intentionally isolated from page layout styles. */
+.privet-user-menu {
+  position: relative;
+  flex: 0 0 auto;
+  width: 2.65rem;
+  height: 2.65rem;
+  margin: 0;
+  z-index: 120;
+}
+
+.privet-user-menu > summary {
+  width: 2.65rem;
+  height: 2.65rem;
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  list-style: none;
+  cursor: pointer;
+  outline: none;
+}
+
+.privet-user-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.privet-user-menu > summary::marker {
+  content: "";
+}
+
+.privet-user-menu > summary:focus-visible {
+  box-shadow: 0 0 0 3px rgba(35, 75, 250, 0.22);
+}
+
+.privet-user-menu-avatar {
+  width: 2.65rem;
+  height: 2.65rem;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--privet-blue-bright, #234bfa);
+  color: #fff;
+  font: inherit;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: none;
+}
+
+.privet-user-menu-panel {
+  position: absolute;
+  top: calc(100% + 0.65rem);
+  right: 0;
+  width: max-content;
+  min-width: 15.5rem;
+  max-width: min(22rem, calc(100vw - 2rem));
+  padding: 0.65rem;
+  border: 1px solid rgba(48, 89, 148, 0.14);
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 1rem 2.4rem rgba(37, 68, 116, 0.18);
+  color: #20376b;
+  text-align: left;
+}
+
+.privet-user-menu-identity {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.55rem 0.65rem 0.7rem;
+  margin-bottom: 0.35rem;
+  border-bottom: 1px solid rgba(48, 89, 148, 0.10);
+}
+
+.privet-user-menu-identity strong {
+  color: #142b67;
+  line-height: 1.2;
+}
+
+.privet-user-menu-identity small {
+  color: #65728d;
+  overflow-wrap: anywhere;
+}
+
+.privet-user-menu-panel > a,
+.privet-user-menu-panel form button {
+  width: 100%;
+  display: block;
+  padding: 0.65rem 0.7rem;
+  border: 0;
+  border-radius: 0.7rem;
+  background: transparent;
+  color: #20376b;
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.privet-user-menu-panel > a:hover,
+.privet-user-menu-panel form button:hover {
+  background: #eef5ff;
+  color: #174db8;
+}
+
+.privet-user-menu-panel form {
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .privet-user-menu-panel {
+    position: fixed;
+    top: 4.5rem;
+    right: 1rem;
+    max-width: calc(100vw - 2rem);
+  }
+}
